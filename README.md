@@ -2,7 +2,7 @@
 
 A local-first document question-answering application built with retrieval-augmented generation (RAG). It indexes documents into Qdrant and answers questions using retrieved passages, with source and chunk citations.
 
-> **Development status:** Core backend retrieval and chat are implemented. Document ingestion currently runs through a Marimo notebook; the React interface is for chatting with the indexed knowledge base. A browser-based document upload workflow, production deployment, and broader automated integration coverage are not yet complete.
+> **Development status:** Core retrieval, chat, Markdown rendering, and browser-based PDF ingestion are implemented. Production deployment and broader automated integration coverage are not yet complete.
 
 ## Current capabilities
 
@@ -11,9 +11,10 @@ A local-first document question-answering application built with retrieval-augme
 - Local dense embeddings using FastEmbed and `BAAI/bge-small-en-v1.5` (384 dimensions).
 - Local persistent Qdrant storage.
 - Dense semantic search, BM25 keyword search, and hybrid retrieval with Reciprocal Rank Fusion.
-- PDF/document conversion and chunking with Docling through a Marimo ingestion notebook.
+- PDF conversion and chunking with Docling through the browser upload API or Marimo notebook.
 - Source filename and Qdrant chunk ID included in retrieved context.
-- React + Vite chat interface.
+- React + Vite chat interface with Markdown-rendered answers.
+- Browser-based PDF upload and local ingestion into the configured Qdrant collection (25 MB per file).
 - Retrieval abstention when no indexed content is returned.
 
 ## Architecture
@@ -74,18 +75,18 @@ Open the local URL printed by Vite. Its development proxy forwards `/api` reques
 
 ## Index documents
 
-Document ingestion is currently provided by the Marimo notebook:
+The React chat interface includes an **Upload PDF** control. Select a PDF (up to 25 MB); the API converts it with Docling, chunks it with `HybridChunker`, generates dense and BM25 embeddings locally, and appends the chunks to the configured Qdrant collection. The upload endpoint is `POST /api/documents/upload` and returns the number of chunks indexed.
+
+The Marimo notebook remains available for batch ingestion and alternative chunking strategies:
 
 ```powershell
 # From the repository root
 uv run marimo edit notebooks/create_collection.py
 ```
 
-Use the notebook to select documents, choose a chunking strategy, and select the `astra-rag` collection.
+**Important:** Stop the FastAPI process before running the Marimo notebook. Both processes use Qdrant local storage, which should not be opened by two processes at the same time.
 
-**Important:** Stop the FastAPI process before running ingestion. Both processes use Qdrant local storage, which should not be opened by two processes at the same time.
-
-The notebook preserves an existing collection and assigns new UUIDs to ingested chunks. It does not intentionally delete existing points. Keep a backup of `qdrant_storage/` before experimenting with ingestion or collection settings.
+Both ingestion paths preserve an existing collection and append new points with UUIDs; they do not intentionally delete existing points. Re-uploading the same PDF currently creates additional chunks rather than replacing earlier chunks. Keep a backup of `qdrant_storage/` before experimenting with ingestion or collection settings.
 
 ## Tests
 
@@ -111,7 +112,6 @@ Some legacy integration and end-to-end tests still depend on Docker/Testcontaine
 
 ## Known limitations / next steps
 
-- Add a browser-based document upload and ingestion workflow.
 - Store page numbers and richer document metadata for citations.
 - Add API and frontend tests for streaming, validation, and error states.
 - Modernize legacy integration and end-to-end tests.
