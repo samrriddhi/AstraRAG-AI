@@ -54,7 +54,10 @@ def extract_citations(answer: str) -> list[dict[str, str | None]]:
         # Look back one line only when it explicitly contains source/page metadata.
         if line_index > 0 and (not source_match or not page_match):
             previous = lines[line_index - 1]
-            if (\n                not CHUNK_ID_PATTERN.search(previous)\n                and (SOURCE_PATTERN.search(previous) or PAGE_PATTERN.search(previous))\n            ):
+            if (
+                not CHUNK_ID_PATTERN.search(previous)
+                and (SOURCE_PATTERN.search(previous) or PAGE_PATTERN.search(previous))
+            ):
                 local_text = previous + " " + local_text
                 source_match = SOURCE_PATTERN.search(local_text)
                 page_match = PAGE_PATTERN.search(local_text)
@@ -193,7 +196,8 @@ def save_report(report: dict[str, Any]) -> None:
     """Persist the latest report so completed cases survive an interrupted run."""
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(
-        json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+        json.dumps(report, indent=2, ensure_ascii=False) + "
+",
         encoding="utf-8",
     )
 
@@ -341,7 +345,8 @@ def main() -> None:
 
     report = asyncio.run(run(dataset, args.limit, args.resume))
     save_report(report)
-    print("\nAnswer-quality evaluation")
+    print("
+Answer-quality evaluation")
     print(json.dumps(report["summary"], indent=2))
     print(f"Full report: {REPORT_PATH}")
 
