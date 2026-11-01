@@ -92,7 +92,7 @@ def main() -> None:
     results = asyncio.run(evaluate(dataset))
     print("Retrieval configuration comparison (higher is better)")
     for strategy, metrics in results.items():
-        print(f"\\n{strategy.upper()}")
+        print(f"\n{strategy.upper()}")
         for name, value in metrics.items():
             if name == "queries_evaluated":
                 print(f"{name}: {int(value)}")
