@@ -37,8 +37,9 @@ SOURCE ATTRIBUTION RULES:
 
 1. Answer document questions using retrieved document content.
 2. Cite the filename and CHUNK_ID supplied in retrieved context.
-3. Use this format: [Source: filename, Chunk ID: id].
-4. Never invent filenames, chunk IDs, page numbers, or quotations.
+3. When page metadata is available, cite using: [Source: filename, Page: page number, Chunk ID: id].
+4. If page metadata is unavailable, cite using: [Source: filename, Chunk ID: id].
+5. Never invent filenames, chunk IDs, page numbers, or quotations.
 5. If retrieved content does not answer the question, say that the indexed
    documents do not contain sufficient information.
 6. Distinguish document facts from interpretations.
@@ -124,6 +125,7 @@ SOURCE ATTRIBUTION RULES:
                 f"<DOCUMENT_CHUNK number='{index}'>\n"
                 f"<SOURCE>{source}</SOURCE>\n"
                 f"<CHUNK_ID>{chunk_id}</CHUNK_ID>\n"
+                f"<PAGES>{', '.join(str(page) for page in data.get('pages', [])) or 'Unavailable'}</PAGES>\n"
                 f"<RETRIEVAL_SCORE>{score}</RETRIEVAL_SCORE>\n"
                 f"<CONTENT>\n{content}\n</CONTENT>\n"
                 f"</DOCUMENT_CHUNK>"
