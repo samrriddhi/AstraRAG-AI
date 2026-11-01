@@ -13,10 +13,10 @@ interface ChatStreamChunk {
 
 function parseSseEvent(event: string): string | null {
   const data = event
-    .split(/\\r?\\n/)
+    .split(/\r?\n/)
     .filter((line) => line.startsWith('data:'))
     .map((line) => line.slice(5).trimStart())
-    .join('\\n');
+    .join('\n');
 
   if (!data || data === '[DONE]') return null;
 
@@ -134,10 +134,10 @@ export default function ChatBot() {
         const { done, value } = await reader.read();
         buffer += decoder.decode(value, { stream: !done });
 
-        let boundary = buffer.search(/\\r?\\n\\r?\\n/);
+        let boundary = buffer.search(/\r?\n\r?\n/);
         while (boundary !== -1) {
           const event = buffer.slice(0, boundary);
-          const separator = buffer.match(/\\r?\\n\\r?\\n/);
+          const separator = buffer.match(/\r?\n\r?\n/);
           const separatorLength = separator?.[0].length ?? 2;
           buffer = buffer.slice(boundary + separatorLength);
           try {
@@ -146,7 +146,7 @@ export default function ChatBot() {
           } catch {
             throw new Error('The backend sent an invalid streaming event.');
           }
-          boundary = buffer.search(/\\r?\\n\\r?\\n/);
+          boundary = buffer.search(/\r?\n\r?\n/);
         }
 
         if (done) break;
