@@ -25,8 +25,8 @@ class ToolCall(BaseModel):
 
 class AssistantMessage(BaseModel):
     role: Literal["assistant"]
-    content: str | None
-    tool_calls: list[ToolCall] | None
+    content: str | None = None
+    tool_calls: list[ToolCall] | None = None
 
 
 class ToolMessage(BaseModel):
