@@ -200,7 +200,8 @@ export default function ChatBot() {
           try {
             const content = parseSseEvent(event);
             if (content) appendContent(content);
-          } catch {
+          } catch (error) {
+            if (error instanceof Error) throw error;
             throw new Error('The backend sent an invalid streaming event.');
           }
           boundary = buffer.search(/\r?\n\r?\n/);
