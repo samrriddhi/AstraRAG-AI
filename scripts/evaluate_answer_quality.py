@@ -83,13 +83,18 @@ async def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
         answer_parts.append(part)
     answer = "".join(answer_parts)
 
+    # Models sometimes use Unicode non-breaking/en/em dashes inside UUIDs.
+    # Normalize dash variants before matching standard UUID syntax.
+    normalized_answer = re.sub(r"[\\u2010-\\u2015\\u2212]", "-", answer)
     citations = []
-    for chunk_match in CHUNK_ID_PATTERN.finditer(answer):
+    for chunk_match in CHUNK_ID_PATTERN.finditer(normalized_answer):
         # Citation styles vary; identify the chunk UUID first, then inspect its
         # surrounding sentence/line for optional source and page metadata.
-        context = answer[max(0, chunk_match.start() - 180):chunk_match.end() + 100]
+        context = normalized_answer[
+            max(0, chunk_match.start() - 180):chunk_match.end() + 100
+        ]
         source_match = re.search(
-            r"(?:Source:\\s*|\\*?)([\\w .()/-]+\\.pdf)",
+            r"([\\w .()/-]+\\.pdf)",
             context,
             re.IGNORECASE,
         )
