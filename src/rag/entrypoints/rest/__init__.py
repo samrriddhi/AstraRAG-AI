@@ -79,7 +79,7 @@ async def send_messages(data: Data, stream: bool = False):
     agent = Agent(model=data.model)
 
     # Convert the incoming Pydantic messages to a Python list.
-    messages = data.messages.model_dump()
+    messages = data.messages.model_dump(exclude_none=True)
 
     # Ensure the AstraRAG system prompt is included.
     if not messages or messages[0].get("role") != "system":
