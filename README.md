@@ -152,3 +152,14 @@ The runner uses the configured local embedding model and Qdrant collection, retr
 ## License
 
 MIT
+
+
+### Inspect retrieved chunks before assigning relevance labels
+
+Before treating a chunk as relevant or irrelevant, inspect its actual text. From the repository root, run:
+
+```powershell
+uv run python scripts/inspect_retrieval.py
+```
+
+This prints the top five hybrid-search results for each question in the evaluation dataset, including rank, chunk ID, source, page, score, and full chunk text. Use the question and displayed text to decide which chunk IDs genuinely answer it, then update `relevant_chunk_ids` in `data/evaluation/retrieval_dataset.json`. Do not label every result as irrelevant merely because it was not the first result.
