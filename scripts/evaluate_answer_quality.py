@@ -23,20 +23,16 @@ CHUNK_ID_PATTERN = re.compile(
     r"\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b",
     re.IGNORECASE,
 )
+SOURCE_PATTERN = re.compile(r"([\w .()/-]+\.pdf)\b", re.IGNORECASE)
 PAGE_PATTERN = re.compile(
-    r"\b(?:Page|p\.)\s*[:.]?\s*([0-9]+(?:\s*,\s*[0-9]+)*)",
-    re.IGNORECASE,
-)
-SOURCE_PATTERN = re.compile(r"([\\w .()/-]+\\.pdf)\\b", re.IGNORECASE)
-PAGE_PATTERN = re.compile(
-    r"\\b(?:Pages?|pp?\\.)\\s*[:.]?\\s*([0-9]+(?:\\s*[-–—,]\\s*[0-9]+)*)",
+    r"\b(?:Pages?|pp?\.)\s*[:.]?\s*([0-9]+(?:\s*[-–—,]\s*[0-9]+)*)",
     re.IGNORECASE,
 )
 
 
 def extract_citations(answer: str) -> list[dict[str, str | None]]:
     """Extract metadata from each citation's line, avoiding adjacent-page leakage."""
-    normalized = re.sub(r"[\\u2010-\\u2015\\u2212]", "-", answer)
+    normalized = re.sub(r"[\u2010-\u2015\u2212]", "-", answer)
     lines = normalized.splitlines()
     starts: list[int] = []
     offset = 0
@@ -65,7 +61,7 @@ def extract_citations(answer: str) -> list[dict[str, str | None]]:
 
         citations.append({
             "source": source_match.group(1).strip() if source_match else None,
-            "pages": re.sub(r"\\s+", "", page_match.group(1)) if page_match else None,
+            "pages": re.sub(r"\s+", "", page_match.group(1)) if page_match else None,
             "chunk_id": match.group(1),
         })
     return citations
