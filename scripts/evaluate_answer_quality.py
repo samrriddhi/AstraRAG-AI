@@ -19,9 +19,15 @@ from rag.config import get_openai_embed, get_qdrant, settings
 
 DATASET_PATH = Path("data/evaluation/answer_quality_dataset.json")
 REPORT_PATH = Path("data/evaluation/answer_quality_report.json")
-CITATION_PATTERN = re.compile(
-    r"\[Source:\s*([^,\]]+?)(?:,\s*Page:\s*([0-9, ]+))?,\s*Chunk ID:\s*([^\]]+)\]"
+SOURCE_CITATION_PATTERN = re.compile(
+    r"(?:\\[\\s*)?Source:\\s*\\*?([^,*\\]\\n]+?)\\*?([^\\]\\n]*)(?:\\]|$)",
+    re.IGNORECASE,
 )
+CHUNK_ID_PATTERN = re.compile(
+    r"\\bChunk(?:\\s*ID)?\\s*[: ]?\\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\b",
+    re.IGNORECASE,
+)
+PAGE_PATTERN = re.compile(r"\\b(?:Page|p\\.)\\s*[:.]?\\s*([0-9]+(?:\\s*,\\s*[0-9]+)*)", re.IGNORECASE)
 ABSTENTION_PHRASES = (
     "do not contain sufficient information",
     "does not contain sufficient information",
@@ -81,14 +87,20 @@ async def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
         answer_parts.append(part)
     answer = "".join(answer_parts)
 
-    citations = [
-        {
-            "source": match.group(1).strip(),
-            "pages": match.group(2).strip() if match.group(2) else None,
-            "chunk_id": match.group(3).strip(),
-        }
-        for match in CITATION_PATTERN.finditer(answer)
-    ]
+    citations = []
+    for match in SOURCE_CITATION_PATTERN.finditer(answer):
+        details = match.group(2)
+        chunk_match = CHUNK_ID_PATTERN.search(details)
+        if not chunk_match:
+            continue
+        page_match = PAGE_PATTERN.search(details)
+        citations.append(
+            {
+                "source": match.group(1).strip().strip("*"),
+                "pages": page_match.group(1).strip() if page_match else None,
+                "chunk_id": chunk_match.group(1).strip(),
+            }
+        )
     retrieved_ids = sorted(set(recorder.retrieved_chunk_ids))
     cited_ids = sorted({item["chunk_id"] for item in citations})
     retrieved_set = set(retrieved_ids)
@@ -125,7 +137,8 @@ async def run(dataset: list[dict[str, Any]], limit: int | None) -> dict[str, Any
     unanswerable = [item for item in results if not item["answerable"]]
     cited = sum(item["citation_present"] for item in answerable)
     valid = sum(item["all_citations_retrieved"] for item in answerable)
-    abstention_passes = sum(item["abstention_check_passed"] for item in results)
+    abstention_passes = sum(item["abstention_detected"] for item in unanswerable)
+    answerable_false_abstentions = sum(item["abstention_detected"] for item in answerable)
 
     return {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -137,7 +150,12 @@ async def run(dataset: list[dict[str, Any]], limit: int | None) -> dict[str, Any
             "unanswerable_queries": len(unanswerable),
             "answerable_citation_rate": cited / len(answerable) if answerable else 0.0,
             "valid_citation_rate": valid / len(answerable) if answerable else 0.0,
-            "abstention_check_rate": abstention_passes / total if total else 0.0,
+            "unanswerable_abstention_rate": (
+                abstention_passes / len(unanswerable) if unanswerable else None
+            ),
+            "answerable_false_abstention_rate": (
+                answerable_false_abstentions / len(answerable) if answerable else None
+            ),
         },
         "results": results,
         "evaluation_note": (
