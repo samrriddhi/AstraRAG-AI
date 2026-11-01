@@ -18,7 +18,7 @@ A local-first document question-answering application built with retrieval-augme
 - Streaming chat errors are logged by the API and surfaced to the chat UI.
 - React + Vite chat interface with Markdown-rendered answers.
 - Browser-based PDF upload and local ingestion into the configured Qdrant collection (25 MB per file).
-- Retrieval abstention when no indexed content is returned.
+- Deterministic abstention for requests requiring unavailable live information or private account access, plus document-grounded abstention when retrieval has no supporting content.
 
 ## Architecture
 
@@ -158,7 +158,7 @@ The dataset is `data/evaluation/answer_quality_dataset.json`. It contains 19 ans
 
 This script exercises the configured Groq chat model for each question. Agent tool-calling can require multiple model requests per question, so the run may consume API quota or incur charges according to the account's Groq plan. Start with `--limit 3` before running the full set. It does not upload, delete, or modify Qdrant points.
 
-**Important evaluation limitation:** citation validity and abstention are automatic heuristics, not a semantic correctness judge. Review the generated answers against the source PDF before claiming answer accuracy, completeness, or groundedness. The report marks every case for manual review. The three unanswerable prompts are deliberately about live/private information that should not be present in the indexed documents.
+**Important evaluation limitation:** citation validity and abstention are automatic heuristics, not a semantic correctness judge. Review the generated answers against the source PDF before claiming answer accuracy, completeness, or groundedness. The report marks every case for manual review. The three unanswerable prompts cover live weather, private bank-account balance, and latest stock price. Requests requiring live external information or private account access are rejected before retrieval because this local RAG app has no live-data or financial-account integrations.
 
 ## Configuration
 
