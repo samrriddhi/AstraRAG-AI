@@ -128,7 +128,19 @@ After labelling at least one relevant chunk ID per query, run from the repositor
 uv run python scripts/evaluate_retrieval.py
 ```
 
-The runner uses the configured local embedding model and Qdrant collection, retrieves the top five chunks with hybrid search, prints the retrieved and relevant IDs, and reports Precision@5, Recall@5, and MRR. The starter file intentionally has empty labels, so it will stop with a helpful message until the labels are supplied. Do not treat unlabelled or example questions as an evaluation score.
+The runner uses the configured local embedding model and Qdrant collection to compare dense, sparse (BM25), and hybrid retrieval. It evaluates hybrid candidate pools of 5, 10, and 20 while keeping the final result count at five, then reports Precision@5, Recall@5, and MRR for each configuration. The current dataset contains 19 manually labelled questions based on the indexed ocean document. Treat the labels as an initial benchmark and inspect chunk text before extending or changing them.
+
+Initial local baseline (19 queries):
+
+| Strategy | Precision@5 | Recall@5 | MRR |
+|---|---:|---:|---:|
+| Dense | 0.2316 | 0.9474 | 1.0000 |
+| Sparse (BM25) | 0.2526 | 1.0000 | 0.9737 |
+| Hybrid, prefetch 5 | 0.2526 | 1.0000 | 1.0000 |
+| Hybrid, prefetch 10 | 0.2526 | 1.0000 | 1.0000 |
+| Hybrid, prefetch 20 | 0.2526 | 1.0000 | 1.0000 |
+
+On this dataset, larger hybrid candidate pools did not improve the measured metrics. The agent's default hybrid retrieval returns five chunks, so prefetch 5 is the measured baseline with the least candidate retrieval work. These scores describe this small labelled dataset only; they are not a general guarantee of retrieval quality.
 
 ## Configuration
 
