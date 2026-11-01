@@ -7,6 +7,30 @@ interface Message {
   role: 'user' | 'assistant';
 }
 
+
+interface Citation {
+  source: string;
+  pages: string[];
+  chunkId: string;
+}
+
+function extractCitations(content: string): Citation[] {
+  const citations = new Map<string, Citation>();
+  const pattern = /\\[Source:\\s*([^\\]]+?)(?:,\\s*Page:\\s*([^\\]]+?))?,\\s*Chunk ID:\\s*([^\\]]+)\\]/g;
+
+  for (const match of content.matchAll(pattern)) {
+    const source = match[1].trim();
+    const pages = match[2]
+      ? match[2].split(",").map((page) => page.trim()).filter(Boolean)
+      : [];
+    const chunkId = match[3].trim();
+    const citation = { source, pages, chunkId };
+    citations.set(`${source}|${pages.join(",")}|${chunkId}`, citation);
+  }
+
+  return [...citations.values()];
+}
+
 interface ChatStreamChunk {
   content?: string | null;
   tools?: unknown[] | null;
@@ -267,7 +291,38 @@ export default function ChatBot() {
             >
               {message.content ? (
                 message.role === 'assistant' ? (
-                  <Streamdown>{message.content}</Streamdown>
+                  <>
+                    <Streamdown>{message.content}</Streamdown>
+                    {extractCitations(message.content).length > 0 && (
+                      <section
+                        aria-label="Sources"
+                        className="mt-4 border-t border-border/70 pt-3"
+                      >
+                        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Sources
+                        </h3>
+                        <ul className="flex flex-wrap gap-2">
+                          {extractCitations(message.content).map((citation) => (
+                            <li
+                              key={`${citation.source}|${citation.pages.join(',')}|${citation.chunkId}`}
+                              className="max-w-full rounded-md border border-border bg-background/70 px-3 py-2 text-xs"
+                            >
+                              <span className="block break-all font-medium text-foreground">
+                                {citation.source}
+                              </span>
+                              <span className="mt-1 block text-muted-foreground">
+                                {citation.pages.length > 0
+                                  ? `Page ${citation.pages.join(', ')}`
+                                  : 'Page unavailable'}
+                                {' · '}
+                                Chunk {citation.chunkId}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+                  </>
                 ) : (
                   message.content
                 )
