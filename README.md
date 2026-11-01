@@ -2,7 +2,7 @@
 
 A local-first document question-answering application built with retrieval-augmented generation (RAG). It indexes documents into Qdrant and answers questions using retrieved passages, with source and chunk citations.
 
-> **Development status:** Core retrieval, chat, Markdown rendering, and browser-based PDF ingestion are implemented. Production deployment and broader automated integration coverage are not yet complete.
+> **Development status:** Phase 1 local-first RAG functionality is implemented, including PDF ingestion, hybrid retrieval, page-aware source citations, duplicate-upload prevention, and streaming error handling. Run the unit tests and frontend production build before considering the current branch release-ready.
 
 ## Current capabilities
 
@@ -12,7 +12,10 @@ A local-first document question-answering application built with retrieval-augme
 - Local persistent Qdrant storage.
 - Dense semantic search, BM25 keyword search, and hybrid retrieval with Reciprocal Rank Fusion.
 - PDF conversion and chunking with Docling through the browser upload API or Marimo notebook.
-- Source filename and Qdrant chunk ID included in retrieved context.
+- Source filename, PDF page numbers (when available), and Qdrant chunk ID included in retrieved context.
+- Idempotent PDF uploads using a SHA-256 document hash and deterministic chunk IDs.
+- Re-uploading a changed PDF with the same filename indexes the new version before deleting older chunks for that filename.
+- Streaming chat errors are logged by the API and surfaced to the chat UI.
 - React + Vite chat interface with Markdown-rendered answers.
 - Browser-based PDF upload and local ingestion into the configured Qdrant collection (25 MB per file).
 - Retrieval abstention when no indexed content is returned.
@@ -75,7 +78,7 @@ Open the local URL printed by Vite. Its development proxy forwards `/api` reques
 
 ## Index documents
 
-The React chat interface includes an **Upload PDF** control. Select a PDF (up to 25 MB); the API converts it with Docling, chunks it with `HybridChunker`, generates dense and BM25 embeddings locally, and appends the chunks to the configured Qdrant collection. The upload endpoint is `POST /api/documents/upload` and returns the number of chunks indexed.
+The React chat interface includes an **Upload PDF** control. Select a PDF (up to 25 MB); the API converts it with Docling, chunks it with `HybridChunker`, generates dense and BM25 embeddings locally, and indexes the chunks in the configured Qdrant collection. The upload endpoint is `POST /api/documents/upload` and returns the number of chunks indexed.
 
 The Marimo notebook remains available for batch ingestion and alternative chunking strategies:
 
@@ -86,7 +89,7 @@ uv run marimo edit notebooks/create_collection.py
 
 **Important:** Stop the FastAPI process before running the Marimo notebook. Both processes use Qdrant local storage, which should not be opened by two processes at the same time.
 
-Both ingestion paths preserve an existing collection and append new points with UUIDs; they do not intentionally delete existing points. Re-uploading the same PDF currently creates additional chunks rather than replacing earlier chunks. Keep a backup of `qdrant_storage/` before experimenting with ingestion or collection settings.
+The browser upload path is idempotent per filename and file content: re-uploading the same PDF reuses deterministic chunk IDs, while uploading changed content under the same filename indexes the new version first and then removes older chunks for that filename. Other filenames are not targeted by that cleanup. The Marimo notebook is a separate batch-ingestion path and does not currently share this replacement workflow. Keep a backup of `qdrant_storage/` before experimenting with ingestion or collection settings.
 
 ## Tests
 
@@ -112,8 +115,7 @@ Some legacy integration and end-to-end tests still depend on Docker/Testcontaine
 
 ## Known limitations / next steps
 
-- Store page numbers and richer document metadata for citations.
-- Add API and frontend tests for streaming, validation, and error states.
+- Add dedicated API and frontend automated tests for upload, streaming, and citation rendering.
 - Modernize legacy integration and end-to-end tests.
 - Reconcile Docker configuration with the current local-first Groq/Qdrant setup.
 - Add authentication, persistent chat history, and deployment only when needed.
