@@ -9,6 +9,8 @@ Supports:
 - Retrieval results with source metadata and chunk identifiers.
 """
 
+from typing import Any
+
 from fastembed import SparseTextEmbedding
 from qdrant_client import AsyncQdrantClient, models
 from qdrant_client.http.models import QueryResponse
@@ -75,7 +77,7 @@ class QdrantSearch:
 
     async def upsert_chunks(
         self,
-        chunks: list[dict[str, str]],
+        chunks: list[dict[str, Any]],
         dense_vectors: list[list[float]],
     ) -> int:
         """Insert document chunks with dense and sparse vectors."""
@@ -102,6 +104,7 @@ class QdrantSearch:
                     payload={
                         "content": chunk["content"],
                         "source": chunk["source"],
+                        "pages": chunk.get("pages", []),
                     },
                 )
             )
