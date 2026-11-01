@@ -1,14 +1,7 @@
-"""`rag.agent` defines the Agent class, which is the main logic abstraction for the application.
-
-The main objective of the Agent class is to provide instructions to the AI through the system prompt and tool definitions,
-along with access to components from the 'components' module in order to perform actions as needed.
-
-An Agent instance uses components configured and provided by the 'config' module. It also imports the 'types' module for type-hinting.
-
-The Agent class is what the entrypoints must import to interact with the application logic.
-"""
+"""Agent implementation for AstraRAG AI."""
 
 import json
+import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
@@ -25,18 +18,34 @@ from rag.types import (
 
 __all__ = ["Agent"]
 
+logger = logging.getLogger(__name__)
+MAX_TOOL_ROUNDS = 5
+
 agent_dir = Path(__file__).parent
-
 system_prompt_txt = agent_dir / "system_prompt.txt"
-
 tools_json = agent_dir / "tools.json"
 
 
 class Agent:
-    """`Agent` encapsulates a system prompt, tool definitions, and tool execution logic."""
+    """Agent coordinating chat completion, retrieval, and grounded answers."""
 
-    system = system_prompt_txt.read_text()
-    tools = json.loads(tools_json.read_text())
+    system = (
+        system_prompt_txt.read_text(encoding="utf-8")
+        + """
+
+SOURCE ATTRIBUTION RULES:
+
+1. Answer document questions using retrieved document content.
+2. Cite the filename and CHUNK_ID supplied in retrieved context.
+3. Use this format: [Source: filename, Chunk ID: id].
+4. Never invent filenames, chunk IDs, page numbers, or quotations.
+5. If retrieved content does not answer the question, say that the indexed
+   documents do not contain sufficient information.
+6. Distinguish document facts from interpretations.
+7. Do not present external knowledge as document evidence.
+"""
+    )
+    tools = json.loads(tools_json.read_text(encoding="utf-8"))
 
     def __init__(
         self,
@@ -45,20 +54,10 @@ class Agent:
         _search: OptionalSearch = None,
         _embed: OptionalEmbed = None,
     ) -> None:
-        """Initialize an `Agent` instance.
-
-        Args:
-            model (str): The model to use for inference, as defined in the litellm config.
-            _chat (OptionalChat, optional): The chat component to use to generate chat completions. Defaults to OpenAIChat if not provided.
-            _search (OptionalSearch, optional): The search component to use to generate search results. Defaults to QdrantSearch if not provided.
-            _embed (OptionalEmbed, optional): The embed component to use to generate embeddings. Defaults to OpenAIEmbed if not provided.
-
-        """
         self.model = model
         self.chat = _chat or config.get_openai_chat()
         self.search = _search or config.get_qdrant()
         self.embed = _embed or config.get_openai_embed()
-
         self.tool_map = {
             "hybrid_search": self._hybrid_search_pipeline,
             "semantic_search": self._semantic_search_pipeline,
@@ -69,110 +68,155 @@ class Agent:
         self,
         query: str,
         keywords: list[str],
-        limit: int = 25,
+        limit: int = 5,
     ) -> str:
-        """Pipeline to perform a hybrid search and build a string template."""
+        """Perform dense and sparse hybrid retrieval."""
         query_embedding = await self.embed.generate_embedding(text=query)
-
-        search_results = await self.search.hybrid_search(
-            query=query_embedding, keywords=keywords, limit=limit
+        results = await self.search.hybrid_search(
+            query=query_embedding,
+            keywords=keywords,
+            limit=limit,
         )
+        return self._build_template(results)
 
-        template = self._build_template(search_results)
-
-        return template
-
-    async def _semantic_search_pipeline(self, query: str, limit: int = 25) -> str:
-        """Pipeline to perform a semantic search and build a string template."""
+    async def _semantic_search_pipeline(
+        self,
+        query: str,
+        limit: int = 5,
+    ) -> str:
+        """Perform semantic retrieval."""
         query_embedding = await self.embed.generate_embedding(text=query)
-
-        search_results = await self.search.semantic_search(
-            query=query_embedding, limit=limit
+        results = await self.search.semantic_search(
+            query=query_embedding,
+            limit=limit,
         )
-
-        template = self._build_template(search_results)
-
-        return template
+        return self._build_template(results)
 
     async def _keyword_search_pipeline(
         self,
         keywords: list[str],
-        limit: int = 25,
+        limit: int = 5,
     ) -> str:
-        """Pipeline to perform a keyword search and build a string template."""
-        search_results = await self.search.keyword_search(
-            keywords=keywords, limit=limit
+        """Perform keyword retrieval."""
+        results = await self.search.keyword_search(
+            keywords=keywords,
+            limit=limit,
         )
+        return self._build_template(results)
 
-        template = self._build_template(search_results)
+    @staticmethod
+    def _build_template(results: list[SearchResult]) -> str:
+        """Format retrieved chunks with source metadata."""
+        if not results:
+            return "NO_RELEVANT_DOCUMENT_CONTENT_FOUND"
 
-        return template
+        formatted_results = []
+        for index, result in enumerate(results, start=1):
+            data = result.get("data", {})
+            content = data.get("content", "")
+            if not content:
+                continue
 
-    def _build_template(self, result: list[SearchResult]) -> str:
-        """Use the results of a search to build a string template."""
-        return "\n".join(
-            [
-                "<CONTENT>\n{content}\n</CONTENT>".format(
-                    content=search["data"]["content"]
-                )
-                for search in result
-            ]
-        )
+            source = data.get("source", "Unknown source")
+            chunk_id = data.get("chunk_id", "Unknown chunk ID")
+            score = result.get("score", "Unavailable")
+            formatted_results.append(
+                f"<DOCUMENT_CHUNK number='{index}'>\n"
+                f"<SOURCE>{source}</SOURCE>\n"
+                f"<CHUNK_ID>{chunk_id}</CHUNK_ID>\n"
+                f"<RETRIEVAL_SCORE>{score}</RETRIEVAL_SCORE>\n"
+                f"<CONTENT>\n{content}\n</CONTENT>\n"
+                f"</DOCUMENT_CHUNK>"
+            )
 
-    async def execute(self, tool_name: str, *args: Any, **kwargs: Any) -> str:
-        """Fetch a tool function from the agent's tool map and runs it given the arguments.
+        if not formatted_results:
+            return "NO_RELEVANT_DOCUMENT_CONTENT_FOUND"
+        return "\n\n".join(formatted_results)
 
-        Args:
-            tool_name (str): The name of the tool to execute as listed in the agent's tool map.
-            *args: Variable-length argument list to pass to the tool function.
-            **kwargs: Arbitrary keyword arguments to pass to the tool function.
+    async def execute(
+        self,
+        tool_name: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> str:
+        """Execute a registered retrieval tool."""
+        if tool_name not in self.tool_map:
+            raise ValueError(f"Unknown retrieval tool: {tool_name}")
+        return await self.tool_map[tool_name](*args, **kwargs)
 
-        Returns:
-            The given tool function's return value.
+    async def generate(
+        self,
+        messages: Messages,
+        **kwargs: Any,
+    ) -> AsyncGenerator[str, None]:
+        """Generate an answer, executing at most MAX_TOOL_ROUNDS tool cycles."""
+        for round_number in range(MAX_TOOL_ROUNDS):
+            assistant_message: AssistantMessage = {
+                "role": "assistant",
+                "content": "",
+            }
+            tool_messages: list[dict[str, Any]] = []
 
-        """
-        return await self.tool_map[tool_name](*args, **kwargs)  # type: ignore[operator]
+            async for chunk in self.chat.generate_stream(
+                messages,
+                model=self.model,
+                tools=self.tools,
+                **kwargs,
+            ):
+                if content := chunk.get("content"):
+                    assistant_message["content"] += content
+                    yield content
 
-    async def generate(self, messages: Messages, **kwargs: Any) -> AsyncGenerator[str]:
-        """Send messages to the LLM to generate a response.
+                tool_calls = chunk.get("tools")
+                if not tool_calls:
+                    continue
 
-        If the LLM responds with a tool call, execute the tool and
-        append the result to the messages list.
+                assistant_message["tool_calls"] = tool_calls
+                for tool in tool_calls:
+                    tool_id = tool.get("id")
+                    function = tool.get("function") or {}
+                    tool_name = function.get("name")
+                    raw_arguments = function.get("arguments", "{}")
 
-        Args:
-            messages (Messages): The list of messages to send to the LLM. Each message
-                is a dictionary with a "role" key and a "content" key.  The "role" key
-                can be "user" or "assistant", and the "content" key is the message
-                to send to the LLM.
-            **kwargs: Arbitrary keyword arguments to pass to the LLM.
+                    if not tool_id or not tool_name:
+                        raise ValueError("The model returned an incomplete tool call.")
 
-        Returns:
-            An asynchronous generator that yields the LLM's response content one token (str) at a time.
+                    try:
+                        arguments = (
+                            json.loads(raw_arguments)
+                            if isinstance(raw_arguments, str)
+                            else raw_arguments
+                        )
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(
+                            f"The model returned invalid JSON for tool {tool_name}."
+                        ) from exc
 
-        """
-        assistant_message: AssistantMessage = {"role": "assistant", "content": ""}
+                    if not isinstance(arguments, dict):
+                        raise ValueError(
+                            f"Arguments for tool {tool_name} must be a JSON object."
+                        )
 
-        new_messages: Messages = []
-        new_messages.append(assistant_message)
-
-        async for chunk in self.chat.generate_stream(
-            messages, model=self.model, tools=self.tools, **kwargs
-        ):
-            if content := chunk["content"]:
-                assistant_message["content"] += content
-                yield content
-
-            if tools := chunk["tools"]:
-                assistant_message["tool_calls"] = tools
-
-                for tool in tools:
-                    result = await self.execute(
-                        tool_name=tool["function"]["name"],
-                        **json.loads(tool["function"]["arguments"]),
+                    result = await self.execute(tool_name=tool_name, **arguments)
+                    tool_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_id,
+                            "content": result,
+                        }
                     )
 
-                    new_messages.append(
-                        {"role": "tool", "tool_call_id": tool["id"], "content": result}
-                    )
+            if "tool_calls" not in assistant_message:
+                return
 
-        messages.extend(new_messages)
+            messages.append(assistant_message)
+            messages.extend(tool_messages)
+            logger.debug(
+                "Completed retrieval tool cycle %s with %s tool result(s).",
+                round_number + 1,
+                len(tool_messages),
+            )
+
+        raise RuntimeError(
+            f"The model exceeded the maximum of {MAX_TOOL_ROUNDS} retrieval rounds."
+        )

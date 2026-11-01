@@ -1,14 +1,9 @@
-"""`rag.config` configures the application from env variables.
-
-This module configures components based on the attributes of `Settings` and caches them for reuse.
-Environment variables are type-checked with pydantic settings to avoid misconfigurations at runtime.
-
-"""
+"""Application configuration and component factories."""
 
 from functools import lru_cache
 
-from pydantic import HttpUrl
-from pydantic_settings import BaseSettings
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .components import chat, embed, search
 
@@ -16,13 +11,19 @@ __all__ = ["get_openai_chat", "get_openai_embed", "get_qdrant"]
 
 
 class Settings(BaseSettings):
-    qdrant_collection: str = "my-collection"
-    qdrant_url: HttpUrl = HttpUrl("http://localhost:6333")
-    qdrant_api_key: str | None = None
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
-    openai_embedding_model: str = "voyage-3.5-lite"
-    openai_url: HttpUrl = HttpUrl("http://localhost:4000")
-    openai_api_key: str = "None"
+    qdrant_collection: str = "astra-rag"
+    qdrant_local_path: str = "./qdrant_storage"
+
+    groq_api_key: str = Field(default="")
+    groq_model: str = "openai/gpt-oss-120b"
+
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
 
 
 settings = Settings()
@@ -30,28 +31,28 @@ settings = Settings()
 
 @lru_cache(1)
 def get_qdrant() -> search.QdrantSearch:
-    """Create a QdrantSearch instance from type-checked environment variables. Instance is cached on first call."""
+    """Create a persistent local Qdrant search component."""
     return search.QdrantSearch(
         collection=settings.qdrant_collection,
-        url=str(settings.qdrant_url),
-        api_key=settings.qdrant_api_key,
+        url=settings.qdrant_local_path,
+        api_key=None,
     )
 
 
 @lru_cache(1)
 def get_openai_chat() -> chat.OpenAIChat:
-    """Create an OpenAIChat instance from type-checked environment variables. Instance is cached on first call."""
+    """Create the Groq-backed chat component."""
     return chat.OpenAIChat(
-        base_url=str(settings.openai_url),
-        api_key=settings.openai_api_key,
+        base_url="https://api.groq.com/openai/v1",
+        api_key=settings.groq_api_key,
     )
 
 
 @lru_cache(1)
 def get_openai_embed() -> embed.OpenAIEmbed:
-    """Create an OpenAIEmbed instance from type-checked environment variables. Instance is cached on first call."""
+    """Create the local embedding component."""
     return embed.OpenAIEmbed(
-        model=settings.openai_embedding_model,
-        base_url=str(settings.openai_url),
-        api_key=settings.openai_api_key,
+        model=settings.embedding_model,
+        api_key="local",
+        base_url=None,
     )
