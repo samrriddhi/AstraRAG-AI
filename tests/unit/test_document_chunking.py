@@ -4,6 +4,9 @@ from rag.entrypoints.rest import _truncate_embedding_text
 
 
 class FakeTokenizer:
+    def num_special_tokens_to_add(self, pair: bool = False) -> int:
+        return 2
+
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
         tokens = list(range(1, len(text.split()) + 1))
         return ([101] + tokens + [102]) if add_special_tokens else tokens
