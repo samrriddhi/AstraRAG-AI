@@ -12,6 +12,7 @@ import tempfile
 from functools import lru_cache
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -54,14 +55,18 @@ CHUNK_TOKEN_LIMIT = 350
 
 
 @lru_cache(maxsize=1)
-def _get_embedding_tokenizer():
+def _get_embedding_tokenizer() -> Any:
     """Load the tokenizer used by the configured embedding model."""
     from transformers import AutoTokenizer
 
     return AutoTokenizer.from_pretrained(settings.embedding_model)
 
 
-def _truncate_embedding_text(text: str, tokenizer, max_tokens: int = EMBEDDING_TOKEN_LIMIT) -> str:
+def _truncate_embedding_text(
+    text: str,
+    tokenizer: Any,
+    max_tokens: int = EMBEDDING_TOKEN_LIMIT,
+) -> str:
     """Ensure final contextualized text fits safely within the embedding window."""
     token_ids = tokenizer.encode(text, add_special_tokens=True)
     if len(token_ids) <= max_tokens:
