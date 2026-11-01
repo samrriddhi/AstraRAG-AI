@@ -101,6 +101,23 @@ uv run pytest tests/unit -q
 
 Some legacy integration and end-to-end tests still depend on Docker/Testcontainers and older API assumptions. They should not be treated as passing until they are updated and run in a working Docker environment.
 
+## Retrieval evaluation (Phase 2)
+
+A small offline evaluation module is available at `src/rag/evaluation/metrics.py`. It provides:
+
+- **Precision@K:** proportion of the top-K retrieved chunks that are relevant.
+- **Recall@K:** proportion of labelled relevant chunks found in the top-K results.
+- **Reciprocal Rank (RR):** inverse rank of the first relevant chunk.
+- **Mean Reciprocal Rank (MRR):** average RR across evaluation queries.
+
+These metrics use human-labelled relevant chunk IDs; they do not call an LLM or require an external service. Add a representative set of questions and their relevant chunk IDs before interpreting scores. The current unit tests validate metric calculations, not AstraRAG's retrieval quality on a labelled corpus.
+
+Run the metric tests with:
+
+```powershell
+uv run pytest tests/unit/evaluation -q
+```
+
 ## Configuration
 
 | Variable | Purpose | Default |
