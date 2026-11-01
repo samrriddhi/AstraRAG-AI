@@ -6,6 +6,7 @@ and document-based question answering.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -147,9 +148,13 @@ async def upload_document(file: UploadFile = File(...)) -> JSONResponse:
             temporary_file.write(contents)
             temporary_path = Path(temporary_file.name)
 
+        document_hash = hashlib.sha256(contents).hexdigest()
         chunks, dense_vectors = await asyncio.to_thread(
             _prepare_pdf, temporary_path, filename
         )
+        for chunk in chunks:
+            chunk["document_hash"] = document_hash
+
         indexed_count = await get_qdrant().upsert_chunks(chunks, dense_vectors)
         return JSONResponse(
             {
