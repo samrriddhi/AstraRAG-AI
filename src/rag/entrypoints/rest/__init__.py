@@ -5,16 +5,19 @@ Exposes the Agent through FastAPI endpoints for model discovery
 and document-based question answering.
 """
 
+import asyncio
 import json
 import os
+import tempfile
+from pathlib import Path
 from collections.abc import AsyncGenerator
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from rag.agent import Agent
-from rag.config import settings
+from rag.config import get_openai_embed, get_qdrant, settings
 
 from .models import BaseModel, Messages
 
@@ -41,6 +44,79 @@ async def get_models() -> JSONResponse:
             "data": [settings.groq_model]
         }
     )
+
+
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+ALLOWED_UPLOAD_SUFFIXES = {".pdf"}
+
+
+def _prepare_pdf(path: Path, filename: str) -> tuple[list[dict[str, str]], list[list[float]]]:
+    """Convert, chunk, and embed a PDF using local models."""
+    from docling.document_converter import DocumentConverter
+    from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
+
+    converted = DocumentConverter().convert(str(path))
+    chunker = HybridChunker()
+    chunks: list[dict[str, str]] = []
+    for chunk in chunker.chunk(dl_doc=converted.document):
+        text = chunker.contextualize(chunk=chunk).strip()
+        if text:
+            chunks.append({"content": text, "source": filename})
+
+    if not chunks:
+        raise ValueError("No readable text chunks were found in this PDF.")
+
+    embedder = get_openai_embed().embedder
+    vectors = [
+        next(iter(embedder.embed([chunk["content"]]))).tolist()
+        for chunk in chunks
+    ]
+    return chunks, vectors
+
+
+@app.post("/api/documents/upload")
+async def upload_document(file: UploadFile = File(...)) -> JSONResponse:
+    """Convert and index one PDF in the configured local Qdrant collection."""
+    filename = Path(file.filename or "").name
+    if Path(filename).suffix.lower() not in ALLOWED_UPLOAD_SUFFIXES:
+        raise HTTPException(status_code=415, detail="Only PDF files are supported.")
+
+    contents = await file.read(MAX_UPLOAD_BYTES + 1)
+    if not contents:
+        raise HTTPException(status_code=400, detail="The uploaded PDF is empty.")
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="PDF exceeds the 25 MB upload limit.")
+
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temporary_file:
+            temporary_file.write(contents)
+            temporary_path = Path(temporary_file.name)
+
+        chunks, dense_vectors = await asyncio.to_thread(
+            _prepare_pdf, temporary_path, filename
+        )
+        indexed_count = await get_qdrant().upsert_chunks(chunks, dense_vectors)
+        return JSONResponse(
+            {
+                "filename": filename,
+                "chunks_indexed": indexed_count,
+                "collection": settings.qdrant_collection,
+                "message": "PDF indexed successfully.",
+            },
+            status_code=201,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not index PDF: {exc}",
+        ) from exc
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        await file.close()
 
 
 @app.post("/api/chat")
