@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import tempfile
+from functools import lru_cache
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
@@ -48,6 +49,28 @@ async def get_models() -> JSONResponse:
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 ALLOWED_UPLOAD_SUFFIXES = {".pdf"}
+EMBEDDING_TOKEN_LIMIT = 480
+CHUNK_TOKEN_LIMIT = 350
+
+
+@lru_cache(maxsize=1)
+def _get_embedding_tokenizer():
+    """Load the tokenizer used by the configured embedding model."""
+    from transformers import AutoTokenizer
+
+    return AutoTokenizer.from_pretrained(settings.embedding_model)
+
+
+def _truncate_embedding_text(text: str, tokenizer, max_tokens: int = EMBEDDING_TOKEN_LIMIT) -> str:
+    """Ensure final contextualized text fits safely within the embedding window."""
+    token_ids = tokenizer.encode(text, add_special_tokens=True)
+    if len(token_ids) <= max_tokens:
+        return text
+
+    return tokenizer.decode(
+        token_ids[:max_tokens],
+        skip_special_tokens=True,
+    ).strip()
 
 
 def _prepare_pdf(path: Path, filename: str) -> tuple[list[dict[str, str]], list[list[float]]]:
@@ -56,14 +79,17 @@ def _prepare_pdf(path: Path, filename: str) -> tuple[list[dict[str, str]], list[
     from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
 
     converted = DocumentConverter().convert(str(path))
-    # Keep chunks below the embedding model's 512-token input limit.
-    # The lower cap leaves room for contextualized headings and special tokens.
-    chunker = HybridChunker(max_tokens=400)
+    # Context headings are added after chunking, so enforce the limit again
+    # on the final text that will actually be sent to the embedding model.
+    chunker = HybridChunker(max_tokens=CHUNK_TOKEN_LIMIT)
+    tokenizer = _get_embedding_tokenizer()
     chunks: list[dict[str, str]] = []
     for chunk in chunker.chunk(dl_doc=converted.document):
         text = chunker.contextualize(chunk=chunk).strip()
         if text:
-            chunks.append({"content": text, "source": filename})
+            text = _truncate_embedding_text(text, tokenizer)
+            if text:
+                chunks.append({"content": text, "source": filename})
 
     if not chunks:
         raise ValueError("No readable text chunks were found in this PDF.")
