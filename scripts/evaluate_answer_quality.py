@@ -132,17 +132,12 @@ async def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def run(dataset: list[dict[str, Any]], limit: int | None) -> dict[str, Any]:
-    """Evaluate selected cases sequentially to avoid concurrent local Qdrant access."""
-    selected = dataset[:limit] if limit else dataset
-    results: list[dict[str, Any]] = []
-    for index, case in enumerate(selected, start=1):
-        print(f"[{index}/{len(selected)}] {case['query']}")
-        results.append(await evaluate_case(case))
-
-    total = len(results)
-    answerable = [item for item in results if item["answerable"]]
-    unanswerable = [item for item in results if not item["answerable"]]
+def build_report(results: list[dict[str, Any]], total_cases: int) -> dict[str, Any]:
+    """Build metrics from successful cases while reporting failed requests separately."""
+    successful = [item for item in results if item["status"] == "completed"]
+    failed = [item for item in results if item["status"] == "failed"]
+    answerable = [item for item in successful if item["answerable"]]
+    unanswerable = [item for item in successful if not item["answerable"]]
     cited = sum(item["citation_present"] for item in answerable)
     valid = sum(item["all_citations_retrieved"] for item in answerable)
     abstention_passes = sum(item["abstention_detected"] for item in unanswerable)
@@ -152,12 +147,14 @@ async def run(dataset: list[dict[str, Any]], limit: int | None) -> dict[str, Any
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "model": settings.groq_model,
         "collection": settings.qdrant_collection,
-        "queries_evaluated": total,
+        "queries_total": total_cases,
+        "queries_completed": len(successful),
+        "queries_failed": len(failed),
         "summary": {
             "answerable_queries": len(answerable),
             "unanswerable_queries": len(unanswerable),
-            "answerable_citation_rate": cited / len(answerable) if answerable else 0.0,
-            "valid_citation_rate": valid / len(answerable) if answerable else 0.0,
+            "answerable_citation_rate": cited / len(answerable) if answerable else None,
+            "valid_citation_rate": valid / len(answerable) if answerable else None,
             "unanswerable_abstention_rate": (
                 abstention_passes / len(unanswerable) if unanswerable else None
             ),
@@ -168,9 +165,56 @@ async def run(dataset: list[dict[str, Any]], limit: int | None) -> dict[str, Any
         "results": results,
         "evaluation_note": (
             "Citation and abstention checks are automatic heuristics. "
+            "Failed API requests are excluded from quality metric denominators. "
             "Answer correctness, completeness, and factual grounding require human review."
         ),
     }
+
+
+def save_report(report: dict[str, Any]) -> None:
+    """Persist the latest report so completed cases survive an interrupted run."""
+    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    REPORT_PATH.write_text(
+        json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+async def run(dataset: list[dict[str, Any]], limit: int | None) -> dict[str, Any]:
+    """Evaluate sequentially, retry transient failures, and checkpoint after each case."""
+    selected = dataset[:limit] if limit else dataset
+    results: list[dict[str, Any]] = []
+    for index, case in enumerate(selected, start=1):
+        print(f"[{index}/{len(selected)}] {case['query']}", flush=True)
+        result = None
+        for attempt in range(3):
+            try:
+                result = await evaluate_case(case)
+                result["status"] = "completed"
+                break
+            except Exception as exc:
+                if attempt < 2:
+                    delay = 2 ** (attempt + 1)
+                    print(
+                        f"  Attempt {attempt + 1} failed ({type(exc).__name__}: {exc}). "
+                        f"Retrying in {delay}s...",
+                        flush=True,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    result = {
+                        "query": case["query"],
+                        "answerable": bool(case["answerable"]),
+                        "status": "failed",
+                        "error": f"{type(exc).__name__}: {exc}",
+                        "manual_review_required": True,
+                    }
+                    print("  Failed after 3 attempts; continuing.", flush=True)
+
+        results.append(result)
+        save_report(build_report(results, len(selected)))
+
+    return build_report(results, len(selected))
 
 
 def main() -> None:
@@ -194,8 +238,7 @@ def main() -> None:
         raise ValueError("The answer-quality dataset is empty.")
 
     report = asyncio.run(run(dataset, args.limit))
-    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_PATH.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    save_report(report)
     print("\nAnswer-quality evaluation")
     print(json.dumps(report["summary"], indent=2))
     print(f"Full report: {REPORT_PATH}")
