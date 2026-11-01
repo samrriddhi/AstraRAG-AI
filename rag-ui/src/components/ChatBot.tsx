@@ -10,6 +10,7 @@ interface Message {
 interface ChatStreamChunk {
   content?: string | null;
   tools?: unknown[] | null;
+  error?: string;
 }
 
 function parseSseEvent(event: string): string | null {
@@ -30,6 +31,7 @@ function parseSseEvent(event: string): string | null {
     'content' in parsed
   ) {
     const chunk = parsed as ChatStreamChunk;
+    if (typeof chunk.error === 'string') throw new Error(chunk.error);
     return typeof chunk.content === 'string' ? chunk.content : null;
   }
 
