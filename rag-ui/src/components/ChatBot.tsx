@@ -7,9 +7,34 @@ interface Message {
   role: 'user' | 'assistant';
 }
 
+
+interface Citation {
+  source: string;
+  pages: string[];
+  chunkId: string;
+}
+
+function extractCitations(content: string): Citation[] {
+  const citations = new Map<string, Citation>();
+  const pattern = /\[Source:\s*([^\]]+?)(?:,\s*Page:\s*([^\]]+?))?,\s*Chunk ID:\s*([^\]]+)\]/g;
+
+  for (const match of content.matchAll(pattern)) {
+    const source = match[1].trim();
+    const pages = match[2]
+      ? match[2].split(",").map((page) => page.trim()).filter(Boolean)
+      : [];
+    const chunkId = match[3].trim();
+    const citation = { source, pages, chunkId };
+    citations.set(`${source}|${pages.join(",")}|${chunkId}`, citation);
+  }
+
+  return [...citations.values()];
+}
+
 interface ChatStreamChunk {
   content?: string | null;
   tools?: unknown[] | null;
+  error?: string;
 }
 
 function parseSseEvent(event: string): string | null {
@@ -24,12 +49,9 @@ function parseSseEvent(event: string): string | null {
   const parsed: unknown = JSON.parse(data);
   if (typeof parsed === 'string') return parsed;
 
-  if (
-    typeof parsed === 'object' &&
-    parsed !== null &&
-    'content' in parsed
-  ) {
+  if (typeof parsed === 'object' && parsed !== null) {
     const chunk = parsed as ChatStreamChunk;
+    if (typeof chunk.error === 'string') throw new Error(chunk.error);
     return typeof chunk.content === 'string' ? chunk.content : null;
   }
 
@@ -40,6 +62,8 @@ export default function ChatBot() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [modelError, setModelError] = useState('');
@@ -78,6 +102,38 @@ export default function ChatBot() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
+
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      setUploadStatus('Please choose a PDF file.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    setIsUploading(true);
+    setUploadStatus('Uploading and indexing PDF…');
+
+    try {
+      const response = await fetch('/api/documents/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const result: { detail?: string; chunks_indexed?: number; message?: string } = await response.json();
+      if (!response.ok) {
+        throw new Error(result.detail ?? 'Upload failed (HTTP ' + response.status + ').');
+      }
+      setUploadStatus((result.message ?? 'PDF indexed.') + ' ' + (result.chunks_indexed ?? 0) + ' chunks added.');
+    } catch (error) {
+      setUploadStatus(error instanceof Error ? error.message : 'PDF upload failed.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleSendMessage = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -144,7 +200,8 @@ export default function ChatBot() {
           try {
             const content = parseSseEvent(event);
             if (content) appendContent(content);
-          } catch {
+          } catch (error) {
+            if (error instanceof Error) throw error;
             throw new Error('The backend sent an invalid streaming event.');
           }
           boundary = buffer.search(/\r?\n\r?\n/);
@@ -193,6 +250,19 @@ export default function ChatBot() {
           </select>
         </div>
         {modelError && <p className="text-sm" role="alert">{modelError}</p>}
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="cursor-pointer rounded-md border border-primary-foreground/30 px-3 py-2 text-sm font-medium hover:bg-primary-foreground/10">
+            {isUploading ? 'Indexing…' : 'Upload PDF'}
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={handleUpload}
+              disabled={isUploading || isLoading}
+              className="sr-only"
+            />
+          </label>
+          {uploadStatus && <p className="text-xs" role="status">{uploadStatus}</p>}
+        </div>
       </header>
 
       <main className="flex-1 space-y-3 overflow-y-auto px-6 py-4">
@@ -218,7 +288,38 @@ export default function ChatBot() {
             >
               {message.content ? (
                 message.role === 'assistant' ? (
-                  <Streamdown>{message.content}</Streamdown>
+                  <>
+                    <Streamdown>{message.content}</Streamdown>
+                    {extractCitations(message.content).length > 0 && (
+                      <section
+                        aria-label="Sources"
+                        className="mt-4 border-t border-border/70 pt-3"
+                      >
+                        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Sources
+                        </h3>
+                        <ul className="flex flex-wrap gap-2">
+                          {extractCitations(message.content).map((citation) => (
+                            <li
+                              key={`${citation.source}|${citation.pages.join(',')}|${citation.chunkId}`}
+                              className="max-w-full rounded-md border border-border bg-background/70 px-3 py-2 text-xs"
+                            >
+                              <span className="block break-all font-medium text-foreground">
+                                {citation.source}
+                              </span>
+                              <span className="mt-1 block text-muted-foreground">
+                                {citation.pages.length > 0
+                                  ? `Page ${citation.pages.join(', ')}`
+                                  : 'Page unavailable'}
+                                {' · '}
+                                Chunk {citation.chunkId}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+                  </>
                 ) : (
                   message.content
                 )

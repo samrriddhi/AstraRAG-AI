@@ -2,7 +2,7 @@
 
 A local-first document question-answering application built with retrieval-augmented generation (RAG). It indexes documents into Qdrant and answers questions using retrieved passages, with source and chunk citations.
 
-> **Development status:** Core backend retrieval and chat are implemented. Document ingestion currently runs through a Marimo notebook; the React interface is for chatting with the indexed knowledge base. A browser-based document upload workflow, production deployment, and broader automated integration coverage are not yet complete.
+> **Development status:** Phase 1 local-first RAG functionality is implemented, including PDF ingestion, hybrid retrieval, page-aware source citations, duplicate-upload prevention, and streaming error handling. Run the unit tests and frontend production build before considering the current branch release-ready.
 
 ## Current capabilities
 
@@ -11,9 +11,13 @@ A local-first document question-answering application built with retrieval-augme
 - Local dense embeddings using FastEmbed and `BAAI/bge-small-en-v1.5` (384 dimensions).
 - Local persistent Qdrant storage.
 - Dense semantic search, BM25 keyword search, and hybrid retrieval with Reciprocal Rank Fusion.
-- PDF/document conversion and chunking with Docling through a Marimo ingestion notebook.
-- Source filename and Qdrant chunk ID included in retrieved context.
-- React + Vite chat interface.
+- PDF conversion and chunking with Docling through the browser upload API or Marimo notebook.
+- Source filename, PDF page numbers (when available), and Qdrant chunk ID included in retrieved context.
+- Idempotent PDF uploads using a SHA-256 document hash and deterministic chunk IDs.
+- Re-uploading a changed PDF with the same filename indexes the new version before deleting older chunks for that filename.
+- Streaming chat errors are logged by the API and surfaced to the chat UI.
+- React + Vite chat interface with Markdown-rendered answers.
+- Browser-based PDF upload and local ingestion into the configured Qdrant collection (25 MB per file).
 - Retrieval abstention when no indexed content is returned.
 
 ## Architecture
@@ -74,18 +78,18 @@ Open the local URL printed by Vite. Its development proxy forwards `/api` reques
 
 ## Index documents
 
-Document ingestion is currently provided by the Marimo notebook:
+The React chat interface includes an **Upload PDF** control. Select a PDF (up to 25 MB); the API converts it with Docling, chunks it with `HybridChunker`, generates dense and BM25 embeddings locally, and indexes the chunks in the configured Qdrant collection. The upload endpoint is `POST /api/documents/upload` and returns the number of chunks indexed.
+
+The Marimo notebook remains available for batch ingestion and alternative chunking strategies:
 
 ```powershell
 # From the repository root
 uv run marimo edit notebooks/create_collection.py
 ```
 
-Use the notebook to select documents, choose a chunking strategy, and select the `astra-rag` collection.
+**Important:** Stop the FastAPI process before running the Marimo notebook. Both processes use Qdrant local storage, which should not be opened by two processes at the same time.
 
-**Important:** Stop the FastAPI process before running ingestion. Both processes use Qdrant local storage, which should not be opened by two processes at the same time.
-
-The notebook preserves an existing collection and assigns new UUIDs to ingested chunks. It does not intentionally delete existing points. Keep a backup of `qdrant_storage/` before experimenting with ingestion or collection settings.
+The browser upload path is idempotent per filename and file content: re-uploading the same PDF reuses deterministic chunk IDs, while uploading changed content under the same filename indexes the new version first and then removes older chunks for that filename. Other filenames are not targeted by that cleanup. The Marimo notebook is a separate batch-ingestion path and does not currently share this replacement workflow. Keep a backup of `qdrant_storage/` before experimenting with ingestion or collection settings.
 
 ## Tests
 
@@ -96,6 +100,35 @@ uv run pytest tests/unit -q
 ```
 
 Some legacy integration and end-to-end tests still depend on Docker/Testcontainers and older API assumptions. They should not be treated as passing until they are updated and run in a working Docker environment.
+
+## Retrieval evaluation (Phase 2)
+
+A small offline evaluation module is available at `src/rag/evaluation/metrics.py`. It provides:
+
+- **Precision@K:** proportion of the top-K retrieved chunks that are relevant.
+- **Recall@K:** proportion of labelled relevant chunks found in the top-K results.
+- **Reciprocal Rank (RR):** inverse rank of the first relevant chunk.
+- **Mean Reciprocal Rank (MRR):** average RR across evaluation queries.
+
+These metrics use human-labelled relevant chunk IDs; they do not call an LLM or require an external service. Add a representative set of questions and their relevant chunk IDs before interpreting scores. The current unit tests validate metric calculations, not AstraRAG's retrieval quality on a labelled corpus.
+
+Run the metric tests with:
+
+```powershell
+uv run pytest tests/unit/evaluation -q
+```
+
+### Run retrieval evaluation on your local index
+
+The starter dataset is at `data/evaluation/retrieval_dataset.json`. Its ocean-related questions are examples only; confirm they are answerable from the PDF you indexed, then add the relevant Qdrant chunk IDs to each `relevant_chunk_ids` array. You can find chunk IDs in the source citations returned by AstraRAG when you ask each question.
+
+After labelling at least one relevant chunk ID per query, run from the repository root:
+
+```powershell
+uv run python scripts/evaluate_retrieval.py
+```
+
+The runner uses the configured local embedding model and Qdrant collection, retrieves the top five chunks with hybrid search, prints the retrieved and relevant IDs, and reports Precision@5, Recall@5, and MRR. The starter file intentionally has empty labels, so it will stop with a helpful message until the labels are supplied. Do not treat unlabelled or example questions as an evaluation score.
 
 ## Configuration
 
@@ -111,9 +144,7 @@ Some legacy integration and end-to-end tests still depend on Docker/Testcontaine
 
 ## Known limitations / next steps
 
-- Add a browser-based document upload and ingestion workflow.
-- Store page numbers and richer document metadata for citations.
-- Add API and frontend tests for streaming, validation, and error states.
+- Add dedicated API and frontend automated tests for upload, streaming, and citation rendering.
 - Modernize legacy integration and end-to-end tests.
 - Reconcile Docker configuration with the current local-first Groq/Qdrant setup.
 - Add authentication, persistent chat history, and deployment only when needed.
@@ -121,3 +152,14 @@ Some legacy integration and end-to-end tests still depend on Docker/Testcontaine
 ## License
 
 MIT
+
+
+### Inspect retrieved chunks before assigning relevance labels
+
+Before treating a chunk as relevant or irrelevant, inspect its actual text. From the repository root, run:
+
+```powershell
+uv run python scripts/inspect_retrieval.py
+```
+
+This prints the top five hybrid-search results for each question in the evaluation dataset, including rank, chunk ID, source, page, score, and full chunk text. Use the question and displayed text to decide which chunk IDs genuinely answer it, then update `relevant_chunk_ids` in `data/evaluation/retrieval_dataset.json`. Do not label every result as irrelevant merely because it was not the first result.

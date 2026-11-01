@@ -37,8 +37,9 @@ SOURCE ATTRIBUTION RULES:
 
 1. Answer document questions using retrieved document content.
 2. Cite the filename and CHUNK_ID supplied in retrieved context.
-3. Use this format: [Source: filename, Chunk ID: id].
-4. Never invent filenames, chunk IDs, page numbers, or quotations.
+3. When page metadata is available, cite using: [Source: filename, Page: page number, Chunk ID: id].
+4. If page metadata is unavailable, cite using: [Source: filename, Chunk ID: id].
+5. Never invent filenames, chunk IDs, page numbers, or quotations.
 5. If retrieved content does not answer the question, say that the indexed
    documents do not contain sufficient information.
 6. Distinguish document facts from interpretations.
@@ -124,6 +125,7 @@ SOURCE ATTRIBUTION RULES:
                 f"<DOCUMENT_CHUNK number='{index}'>\n"
                 f"<SOURCE>{source}</SOURCE>\n"
                 f"<CHUNK_ID>{chunk_id}</CHUNK_ID>\n"
+                f"<PAGES>{', '.join(str(page) for page in data.get('pages', [])) or 'Unavailable'}</PAGES>\n"
                 f"<RETRIEVAL_SCORE>{score}</RETRIEVAL_SCORE>\n"
                 f"<CONTENT>\n{content}\n</CONTENT>\n"
                 f"</DOCUMENT_CHUNK>"
@@ -217,6 +219,42 @@ SOURCE ATTRIBUTION RULES:
                 len(tool_messages),
             )
 
-        raise RuntimeError(
-            f"The model exceeded the maximum of {MAX_TOOL_ROUNDS} retrieval rounds."
+        # Do not fail the HTTP/SSE response when a model keeps requesting
+        # retrieval. Ask for one final answer with tools explicitly disabled,
+        # using the evidence already collected in the conversation.
+        logger.warning(
+            "Reached the maximum of %s retrieval rounds; requesting a final "
+            "grounded response without tools.",
+            MAX_TOOL_ROUNDS,
         )
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Retrieval is complete. Do not request or call any more "
+                    "tools. Answer the user's original question now using only "
+                    "the retrieved document evidence in the conversation. "
+                    "Cite the available source filenames and chunk IDs. If the "
+                    "evidence is insufficient, say so clearly."
+                ),
+            }
+        )
+
+        final_content = False
+        async for chunk in self.chat.generate_stream(
+            messages,
+            model=self.model,
+            tools=[],
+            tool_choice="none",
+            **kwargs,
+        ):
+            if content := chunk.get("content"):
+                final_content = True
+                yield content
+
+        if not final_content:
+            logger.error("The model returned no final answer after retrieval.")
+            yield (
+                "I retrieved document passages, but couldn't produce a final "
+                "answer. Please try a more focused question."
+            )

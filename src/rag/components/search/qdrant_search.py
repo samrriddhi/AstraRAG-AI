@@ -9,6 +9,9 @@ Supports:
 - Retrieval results with source metadata and chunk identifiers.
 """
 
+from typing import Any
+from uuid import NAMESPACE_URL, uuid5
+
 from fastembed import SparseTextEmbedding
 from qdrant_client import AsyncQdrantClient, models
 from qdrant_client.http.models import QueryResponse
@@ -72,6 +75,70 @@ class QdrantSearch:
             )
 
         return results
+
+    async def upsert_chunks(
+        self,
+        chunks: list[dict[str, Any]],
+        dense_vectors: list[list[float]],
+    ) -> int:
+        """Upsert one document version, then safely remove its older chunks.
+
+        Stable point IDs make identical re-uploads idempotent. New points are
+        written before old versions are deleted, protecting the prior version
+        if embedding or upsert fails.
+        """
+        if len(chunks) != len(dense_vectors):
+            raise ValueError("Each chunk must have exactly one dense vector.")
+        if not chunks:
+            return 0
+
+        source = chunks[0]["source"]
+        document_hash = chunks[0].get("document_hash")
+        if not document_hash:
+            raise ValueError("Chunks must include a document_hash.")
+        if any(chunk.get("source") != source or chunk.get("document_hash") != document_hash for chunk in chunks):
+            raise ValueError("All chunks must belong to the same document version.")
+
+        points = []
+        for index, (chunk, dense_vector) in enumerate(zip(chunks, dense_vectors, strict=True)):
+            sparse_embedding = next(
+                iter(self.bm25.query_embed(chunk["content"]))
+            )
+            points.append(
+                models.PointStruct(
+                    id=str(uuid5(NAMESPACE_URL, f"astra-rag:{source}:{document_hash}:{index}")),
+                    vector={
+                        self.dense_index: dense_vector,
+                        self.sparse_index: models.SparseVector(
+                            indices=sparse_embedding.indices.tolist(),
+                            values=sparse_embedding.values.tolist(),
+                        ),
+                    },
+                    payload={
+                        "content": chunk["content"],
+                        "source": chunk["source"],
+                        "pages": chunk.get("pages", []),
+                        "document_hash": document_hash,
+                    },
+                )
+            )
+
+        await self.qdrant.upsert(
+            collection_name=self.collection,
+            points=points,
+            wait=True,
+        )
+        await self.qdrant.delete(
+            collection_name=self.collection,
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[models.FieldCondition(key="source", match=models.MatchValue(value=source))],
+                    must_not=[models.FieldCondition(key="document_hash", match=models.MatchValue(value=document_hash))],
+                )
+            ),
+            wait=True,
+        )
+        return len(points)
 
     async def hybrid_search(
         self,
