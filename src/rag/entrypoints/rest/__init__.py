@@ -83,7 +83,19 @@ def _truncate_embedding_text(
     ).strip()
 
 
-def _prepare_pdf(path: Path, filename: str) -> tuple[list[dict[str, str]], list[list[float]]]:
+def _extract_chunk_pages(chunk: Any) -> list[int]:
+    """Extract unique one-based PDF page numbers from Docling provenance."""
+    pages: set[int] = set()
+    metadata = getattr(chunk, "meta", None)
+    for item in getattr(metadata, "doc_items", None) or []:
+        for provenance in getattr(item, "prov", None) or []:
+            page_number = getattr(provenance, "page_no", None)
+            if isinstance(page_number, int) and page_number > 0:
+                pages.add(page_number)
+    return sorted(pages)
+
+
+def _prepare_pdf(path: Path, filename: str) -> tuple[list[dict[str, Any]], list[list[float]]]:
     """Convert, chunk, and embed a PDF using local models."""
     from docling.document_converter import DocumentConverter
     from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
@@ -93,13 +105,13 @@ def _prepare_pdf(path: Path, filename: str) -> tuple[list[dict[str, str]], list[
     # on the final text that will actually be sent to the embedding model.
     chunker = HybridChunker(max_tokens=CHUNK_TOKEN_LIMIT)
     tokenizer = _get_embedding_tokenizer()
-    chunks: list[dict[str, str]] = []
+    chunks: list[dict[str, Any]] = []
     for chunk in chunker.chunk(dl_doc=converted.document):
         text = chunker.contextualize(chunk=chunk).strip()
         if text:
             text = _truncate_embedding_text(text, tokenizer)
             if text:
-                chunks.append({"content": text, "source": filename})
+                chunks.append({"content": text, "source": filename, "pages": _extract_chunk_pages(chunk)})
 
     if not chunks:
         raise ValueError("No readable text chunks were found in this PDF.")
