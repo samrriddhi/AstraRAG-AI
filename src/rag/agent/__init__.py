@@ -121,17 +121,17 @@ SOURCE ATTRIBUTION RULES:
             chunk_id = data.get("chunk_id", "Unknown chunk ID")
             score = result.get("score", "Unavailable")
             formatted_results.append(
-                f"<DOCUMENT_CHUNK number='{index}'>\\n"
-                f"<SOURCE>{source}</SOURCE>\\n"
-                f"<CHUNK_ID>{chunk_id}</CHUNK_ID>\\n"
-                f"<RETRIEVAL_SCORE>{score}</RETRIEVAL_SCORE>\\n"
-                f"<CONTENT>\\n{content}\\n</CONTENT>\\n"
+                f"<DOCUMENT_CHUNK number='{index}'>\n"
+                f"<SOURCE>{source}</SOURCE>\n"
+                f"<CHUNK_ID>{chunk_id}</CHUNK_ID>\n"
+                f"<RETRIEVAL_SCORE>{score}</RETRIEVAL_SCORE>\n"
+                f"<CONTENT>\n{content}\n</CONTENT>\n"
                 f"</DOCUMENT_CHUNK>"
             )
 
         if not formatted_results:
             return "NO_RELEVANT_DOCUMENT_CONTENT_FOUND"
-        return "\\n\\n".join(formatted_results)
+        return "\n\n".join(formatted_results)
 
     async def execute(
         self,
