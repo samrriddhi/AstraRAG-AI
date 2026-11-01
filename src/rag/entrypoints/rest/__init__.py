@@ -10,7 +10,7 @@ import os
 from collections.abc import AsyncGenerator
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from rag.agent import Agent
@@ -57,6 +57,24 @@ async def send_messages(data: Data, stream: bool = False):
     Returns:
         A JSON response or a server-sent event stream.
     """
+
+    if data.model != settings.groq_model:
+        raise HTTPException(
+            status_code=400,
+            detail="The requested model is not configured for this application.",
+        )
+
+    if not settings.groq_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="GROQ_API_KEY is not configured. Add it to your local .env file.",
+        )
+
+    if not data.messages.root:
+        raise HTTPException(
+            status_code=422,
+            detail="At least one conversation message is required.",
+        )
 
     agent = Agent(model=data.model)
 
