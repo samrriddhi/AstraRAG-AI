@@ -7,6 +7,7 @@ and document-based question answering.
 
 import asyncio
 import json
+import logging
 import os
 import tempfile
 from functools import lru_cache
@@ -22,6 +23,9 @@ from rag.agent import Agent
 from rag.config import get_openai_embed, get_qdrant, settings
 
 from .models import BaseModel, Messages
+
+
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(
