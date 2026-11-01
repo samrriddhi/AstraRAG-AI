@@ -19,12 +19,8 @@ from rag.config import get_openai_embed, get_qdrant, settings
 
 DATASET_PATH = Path("data/evaluation/answer_quality_dataset.json")
 REPORT_PATH = Path("data/evaluation/answer_quality_report.json")
-SOURCE_CITATION_PATTERN = re.compile(
-    r"(?:\\[\\s*)?Source:\\s*\\*?([^,*\\]\\n]+?)\\*?([^\\]\\n]*)(?:\\]|$)",
-    re.IGNORECASE,
-)
 CHUNK_ID_PATTERN = re.compile(
-    r"\\bChunk(?:\\s*ID)?\\s*[: ]?\\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\b",
+    r"\\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\b",
     re.IGNORECASE,
 )
 PAGE_PATTERN = re.compile(r"\\b(?:Page|p\\.)\\s*[:.]?\\s*([0-9]+(?:\\s*,\\s*[0-9]+)*)", re.IGNORECASE)
@@ -88,15 +84,19 @@ async def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     answer = "".join(answer_parts)
 
     citations = []
-    for match in SOURCE_CITATION_PATTERN.finditer(answer):
-        details = match.group(2)
-        chunk_match = CHUNK_ID_PATTERN.search(details)
-        if not chunk_match:
-            continue
-        page_match = PAGE_PATTERN.search(details)
+    for chunk_match in CHUNK_ID_PATTERN.finditer(answer):
+        # Citation styles vary; identify the chunk UUID first, then inspect its
+        # surrounding sentence/line for optional source and page metadata.
+        context = answer[max(0, chunk_match.start() - 180):chunk_match.end() + 100]
+        source_match = re.search(
+            r"(?:Source:\\s*|\\*?)([\\w .()/-]+\\.pdf)",
+            context,
+            re.IGNORECASE,
+        )
+        page_match = PAGE_PATTERN.search(context)
         citations.append(
             {
-                "source": match.group(1).strip().strip("*"),
+                "source": source_match.group(1).strip() if source_match else None,
                 "pages": page_match.group(1).strip() if page_match else None,
                 "chunk_id": chunk_match.group(1).strip(),
             }
