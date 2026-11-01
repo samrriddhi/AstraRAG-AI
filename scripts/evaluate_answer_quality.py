@@ -146,8 +146,7 @@ def save_report(report: dict[str, Any]) -> None:
     """Persist the latest report so completed cases survive an interrupted run."""
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(
-        json.dumps(report, indent=2, ensure_ascii=False) + "
-",
+        json.dumps(report, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
 
@@ -295,8 +294,7 @@ def main() -> None:
 
     report = asyncio.run(run(dataset, args.limit, args.resume))
     save_report(report)
-    print("
-Answer-quality evaluation")
+    print("\nAnswer-quality evaluation")
     print(json.dumps(report["summary"], indent=2))
     print(f"Full report: {REPORT_PATH}")
 
