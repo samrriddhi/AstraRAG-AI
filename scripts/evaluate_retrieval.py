@@ -1,4 +1,4 @@
-"""Compare dense, sparse, and hybrid retrieval on the labelled local dataset."""
+"""Compare dense, sparse, and hybrid candidate-pool sizes on labelled queries."""
 
 import asyncio
 import json
@@ -11,13 +11,16 @@ from rag.evaluation.metrics import mean_reciprocal_rank, precision_at_k, recall_
 
 DATASET_PATH = Path("data/evaluation/retrieval_dataset.json")
 TOP_K = 5
+HYBRID_CANDIDATE_SIZES = (5, 10, 20)
 
 
 async def evaluate(dataset: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
-    """Run each retrieval strategy against the same labelled queries."""
+    """Run dense, sparse, and hybrid candidate-pool configurations."""
     embedder = get_openai_embed()
     search = get_qdrant()
-    strategies = ("dense", "sparse", "hybrid")
+    strategies = ["dense", "sparse"] + [
+        f"hybrid_prefetch_{size}" for size in HYBRID_CANDIDATE_SIZES
+    ]
     runs: dict[str, list[list[str]]] = {name: [] for name in strategies}
     precisions: dict[str, list[float]] = {name: [] for name in strategies}
     recalls: dict[str, list[float]] = {name: [] for name in strategies}
@@ -34,10 +37,16 @@ async def evaluate(dataset: list[dict[str, Any]]) -> dict[str, dict[str, float]]
         results_by_strategy = {
             "dense": await search.semantic_search(query=query_vector, limit=TOP_K),
             "sparse": await search.keyword_search(keywords=keywords, limit=TOP_K),
-            "hybrid": await search.hybrid_search(
-                query=query_vector, keywords=keywords, limit=TOP_K
-            ),
         }
+        for candidate_size in HYBRID_CANDIDATE_SIZES:
+            results_by_strategy[f"hybrid_prefetch_{candidate_size}"] = (
+                await search.hybrid_search(
+                    query=query_vector,
+                    keywords=keywords,
+                    limit=TOP_K,
+                    prefetch_limit=candidate_size,
+                )
+            )
 
         relevant_sets.append(relevant_ids)
         for strategy, results in results_by_strategy.items():
@@ -56,9 +65,8 @@ async def evaluate(dataset: list[dict[str, Any]]) -> dict[str, dict[str, float]]
 
         print(f"Query: {query}")
         for strategy in strategies:
-            ids = runs[strategy][-1]
-            print(f"  {strategy:6} retrieved: {ids}")
-            print(f"  {'':6} relevant:  {relevant_ids}")
+            print(f"  {strategy:20} {runs[strategy][-1]}")
+        print(f"  {'relevant':20} {relevant_ids}")
         print()
 
     count = len(dataset)
@@ -74,7 +82,7 @@ async def evaluate(dataset: list[dict[str, Any]]) -> dict[str, dict[str, float]]
 
 
 def main() -> None:
-    """Load labels, compare retrieval strategies, and print aggregate metrics."""
+    """Load labels, compare retrieval configurations, and print metrics."""
     if not DATASET_PATH.exists():
         raise FileNotFoundError(f"Evaluation dataset not found: {DATASET_PATH}")
     dataset = json.loads(DATASET_PATH.read_text(encoding="utf-8"))
@@ -82,7 +90,7 @@ def main() -> None:
         raise ValueError("The retrieval evaluation dataset is empty.")
 
     results = asyncio.run(evaluate(dataset))
-    print("Retrieval strategy comparison (higher is better)")
+    print("Retrieval configuration comparison (higher is better)")
     for strategy, metrics in results.items():
         print(f"\\n{strategy.upper()}")
         for name, value in metrics.items():
