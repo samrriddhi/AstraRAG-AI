@@ -20,10 +20,13 @@ from rag.config import get_openai_embed, get_qdrant, settings
 DATASET_PATH = Path("data/evaluation/answer_quality_dataset.json")
 REPORT_PATH = Path("data/evaluation/answer_quality_report.json")
 CHUNK_ID_PATTERN = re.compile(
-    r"\\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\b",
+    r"\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b",
     re.IGNORECASE,
 )
-PAGE_PATTERN = re.compile(r"\\b(?:Page|p\\.)\\s*[:.]?\\s*([0-9]+(?:\\s*,\\s*[0-9]+)*)", re.IGNORECASE)
+PAGE_PATTERN = re.compile(
+    r"\b(?:Page|p\.)\s*[:.]?\s*([0-9]+(?:\s*,\s*[0-9]+)*)",
+    re.IGNORECASE,
+)
 ABSTENTION_PHRASES = (
     "do not contain sufficient information",
     "does not contain sufficient information",
@@ -85,7 +88,7 @@ async def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
 
     # Models sometimes use Unicode non-breaking/en/em dashes inside UUIDs.
     # Normalize dash variants before matching standard UUID syntax.
-    normalized_answer = re.sub(r"[\\u2010-\\u2015\\u2212]", "-", answer)
+    normalized_answer = re.sub(r"[\u2010-\u2015\u2212]", "-", answer)
     citations = []
     for chunk_match in CHUNK_ID_PATTERN.finditer(normalized_answer):
         # Citation styles vary; identify the chunk UUID first, then inspect its
@@ -94,7 +97,7 @@ async def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
             max(0, chunk_match.start() - 180):chunk_match.end() + 100
         ]
         source_match = re.search(
-            r"([\\w .()/-]+\\.pdf)",
+            r"([\w .()/-]+\.pdf)",
             context,
             re.IGNORECASE,
         )
