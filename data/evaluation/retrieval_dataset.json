@@ -2,12 +2,12 @@
   {
     "query": "What causes ocean currents?",
     "keywords": ["ocean", "currents", "causes"],
-    "relevant_chunk_ids": []
+    "relevant_chunk_ids": ["7bac400c-ce5a-5f9b-bd49-f2a7d5b72f5f"]
   },
   {
     "query": "How does temperature affect ocean water?",
     "keywords": ["temperature", "ocean", "water"],
-    "relevant_chunk_ids": []
+    "relevant_chunk_ids": ["7bac400c-ce5a-5f9b-bd49-f2a7d5b72f5f"]
   },
   {
     "query": "What role does salinity play in ocean circulation?",
