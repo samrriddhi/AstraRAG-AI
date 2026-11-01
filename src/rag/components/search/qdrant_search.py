@@ -145,8 +145,13 @@ class QdrantSearch:
         query: list[float],
         keywords: list[str],
         limit: int = 25,
+        prefetch_limit: int | None = None,
     ) -> list[SearchResult]:
-        """Search using dense and sparse retrieval with RRF fusion."""
+        """Search using dense and sparse retrieval with RRF fusion.
+
+        prefetch_limit controls the candidate pool from each retriever;
+        limit controls the final number of fused results.
+        """
 
         text = " ".join(keywords)
 
@@ -159,16 +164,17 @@ class QdrantSearch:
             values=embedding.values.tolist(),
         )
 
+        candidate_limit = max(limit, prefetch_limit or limit)
         prefetch = [
             models.Prefetch(
                 query=query,
                 using=self.dense_index,
-                limit=limit,
+                limit=candidate_limit,
             ),
             models.Prefetch(
                 query=sparse_vector,
                 using=self.sparse_index,
-                limit=limit,
+                limit=candidate_limit,
             ),
         ]
 
