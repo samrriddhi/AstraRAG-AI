@@ -156,7 +156,7 @@ uv run python scripts/evaluate_answer_quality.py
 
 The dataset is `data/evaluation/answer_quality_dataset.json`. It contains 19 answerable questions and 3 questions expected to be outside the indexed knowledge base. The runner records each generated answer, retrieved chunk IDs, parsed source/page/chunk citations, whether citations refer to chunks retrieved during that answer, and a simple abstention-language check. It writes the detailed results to `data/evaluation/answer_quality_report.json`.
 
-This script calls the configured Groq chat model once per question and may consume API quota or incur charges according to the account's Groq plan. Start with `--limit 3` before running the full set. It does not upload, delete, or modify Qdrant points.
+This script exercises the configured Groq chat model for each question. Agent tool-calling can require multiple model requests per question, so the run may consume API quota or incur charges according to the account's Groq plan. Start with `--limit 3` before running the full set. It does not upload, delete, or modify Qdrant points.
 
 **Important evaluation limitation:** citation validity and abstention are automatic heuristics, not a semantic correctness judge. Review the generated answers against the source PDF before claiming answer accuracy, completeness, or groundedness. The report marks every case for manual review. The three unanswerable prompts are deliberately about live/private information that should not be present in the indexed documents.
 
