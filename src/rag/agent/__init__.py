@@ -217,6 +217,42 @@ SOURCE ATTRIBUTION RULES:
                 len(tool_messages),
             )
 
-        raise RuntimeError(
-            f"The model exceeded the maximum of {MAX_TOOL_ROUNDS} retrieval rounds."
+        # Do not fail the HTTP/SSE response when a model keeps requesting
+        # retrieval. Ask for one final answer with tools explicitly disabled,
+        # using the evidence already collected in the conversation.
+        logger.warning(
+            "Reached the maximum of %s retrieval rounds; requesting a final "
+            "grounded response without tools.",
+            MAX_TOOL_ROUNDS,
         )
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Retrieval is complete. Do not request or call any more "
+                    "tools. Answer the user's original question now using only "
+                    "the retrieved document evidence in the conversation. "
+                    "Cite the available source filenames and chunk IDs. If the "
+                    "evidence is insufficient, say so clearly."
+                ),
+            }
+        )
+
+        final_content = False
+        async for chunk in self.chat.generate_stream(
+            messages,
+            model=self.model,
+            tools=[],
+            tool_choice="none",
+            **kwargs,
+        ):
+            if content := chunk.get("content"):
+                final_content = True
+                yield content
+
+        if not final_content:
+            logger.error("The model returned no final answer after retrieval.")
+            yield (
+                "I retrieved document passages, but couldn't produce a final "
+                "answer. Please try a more focused question."
+            )
