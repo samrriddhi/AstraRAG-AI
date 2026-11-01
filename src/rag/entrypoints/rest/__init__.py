@@ -68,12 +68,17 @@ def _truncate_embedding_text(
     max_tokens: int = EMBEDDING_TOKEN_LIMIT,
 ) -> str:
     """Ensure final contextualized text fits safely within the embedding window."""
-    token_ids = tokenizer.encode(text, add_special_tokens=True)
-    if len(token_ids) <= max_tokens:
+    token_ids = tokenizer.encode(text, add_special_tokens=False)
+    special_token_count = tokenizer.num_special_tokens_to_add(pair=False)
+    content_token_limit = max_tokens - special_token_count
+
+    if len(token_ids) + special_token_count <= max_tokens:
         return text
+    if content_token_limit <= 0:
+        raise ValueError("max_tokens must leave room for special tokens.")
 
     return tokenizer.decode(
-        token_ids[:max_tokens],
+        token_ids[:content_token_limit],
         skip_special_tokens=True,
     ).strip()
 
