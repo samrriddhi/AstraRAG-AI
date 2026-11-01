@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Streamdown } from 'streamdown';
 
 interface Message {
   id: string;
@@ -215,7 +216,13 @@ export default function ChatBot() {
                   : 'rounded-bl-none bg-muted text-foreground'
               }`}
             >
-              {message.content || (isLoading && message.role === 'assistant' ? 'Thinking…' : '')}
+              {message.content ? (
+                message.role === 'assistant' ? (
+                  <Streamdown>{message.content}</Streamdown>
+                ) : (
+                  message.content
+                )
+              ) : (isLoading && message.role === 'assistant' ? 'Thinking…' : '')}
             </div>
           </div>
         ))}
