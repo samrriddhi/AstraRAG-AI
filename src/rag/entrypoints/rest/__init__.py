@@ -232,8 +232,15 @@ async def send_messages(data: Data, stream: bool = False):
     if stream:
 
         async def stream_response() -> AsyncGenerator[str, None]:
-            async for chunk in response:
-                yield f"data: {json.dumps(chunk)}\n\n"
+            try:
+                async for chunk in response:
+                    yield f"data: {json.dumps(chunk)}\\n\\n"
+            except Exception:
+                logger.exception("Chat response stream failed.")
+                yield (
+                    "event: error\\n"
+                    'data: {"error": "The response stream encountered an error. Please try again."}\\n\\n'
+                )
 
         return StreamingResponse(
             stream_response(),
