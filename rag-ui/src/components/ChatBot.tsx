@@ -40,6 +40,8 @@ export default function ChatBot() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [modelError, setModelError] = useState('');
@@ -78,6 +80,38 @@ export default function ChatBot() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
+
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      setUploadStatus('Please choose a PDF file.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    setIsUploading(true);
+    setUploadStatus('Uploading and indexing PDF…');
+
+    try {
+      const response = await fetch('/api/documents/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const result: { detail?: string; chunks_indexed?: number; message?: string } = await response.json();
+      if (!response.ok) {
+        throw new Error(result.detail ?? 'Upload failed (HTTP ' + response.status + ').');
+      }
+      setUploadStatus((result.message ?? 'PDF indexed.') + ' ' + (result.chunks_indexed ?? 0) + ' chunks added.');
+    } catch (error) {
+      setUploadStatus(error instanceof Error ? error.message : 'PDF upload failed.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleSendMessage = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -193,6 +227,19 @@ export default function ChatBot() {
           </select>
         </div>
         {modelError && <p className="text-sm" role="alert">{modelError}</p>}
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="cursor-pointer rounded-md border border-primary-foreground/30 px-3 py-2 text-sm font-medium hover:bg-primary-foreground/10">
+            {isUploading ? 'Indexing…' : 'Upload PDF'}
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={handleUpload}
+              disabled={isUploading || isLoading}
+              className="sr-only"
+            />
+          </label>
+          {uploadStatus && <p className="text-xs" role="status">{uploadStatus}</p>}
+        </div>
       </header>
 
       <main className="flex-1 space-y-3 overflow-y-auto px-6 py-4">
