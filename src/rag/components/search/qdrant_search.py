@@ -73,6 +73,47 @@ class QdrantSearch:
 
         return results
 
+    async def upsert_chunks(
+        self,
+        chunks: list[dict[str, str]],
+        dense_vectors: list[list[float]],
+    ) -> int:
+        """Insert document chunks with dense and sparse vectors."""
+        from uuid import uuid4
+
+        if len(chunks) != len(dense_vectors):
+            raise ValueError("Each chunk must have exactly one dense vector.")
+
+        points = []
+        for chunk, dense_vector in zip(chunks, dense_vectors, strict=True):
+            sparse_embedding = next(
+                iter(self.bm25.query_embed(chunk["content"]))
+            )
+            points.append(
+                models.PointStruct(
+                    id=str(uuid4()),
+                    vector={
+                        self.dense_index: dense_vector,
+                        self.sparse_index: models.SparseVector(
+                            indices=sparse_embedding.indices.tolist(),
+                            values=sparse_embedding.values.tolist(),
+                        ),
+                    },
+                    payload={
+                        "content": chunk["content"],
+                        "source": chunk["source"],
+                    },
+                )
+            )
+
+        if points:
+            await self.qdrant.upsert(
+                collection_name=self.collection,
+                points=points,
+                wait=True,
+            )
+        return len(points)
+
     async def hybrid_search(
         self,
         query: list[float],
