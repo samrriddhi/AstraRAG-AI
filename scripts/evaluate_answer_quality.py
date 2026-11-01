@@ -27,6 +27,50 @@ PAGE_PATTERN = re.compile(
     r"\b(?:Page|p\.)\s*[:.]?\s*([0-9]+(?:\s*,\s*[0-9]+)*)",
     re.IGNORECASE,
 )
+SOURCE_PATTERN = re.compile(r"([\\w .()/-]+\\.pdf)\\b", re.IGNORECASE)
+PAGE_PATTERN = re.compile(
+    r"\\b(?:Pages?|pp?\\.)\\s*[:.]?\\s*([0-9]+(?:\\s*[-–—,]\\s*[0-9]+)*)",
+    re.IGNORECASE,
+)
+
+
+def extract_citations(answer: str) -> list[dict[str, str | None]]:
+    """Extract metadata from each citation's line, avoiding adjacent-page leakage."""
+    normalized = re.sub(r"[\\u2010-\\u2015\\u2212]", "-", answer)
+    lines = normalized.splitlines()
+    starts: list[int] = []
+    offset = 0
+    for line in lines:
+        starts.append(offset)
+        offset += len(line) + 1
+
+    citations: list[dict[str, str | None]] = []
+    for match in CHUNK_ID_PATTERN.finditer(normalized):
+        line_index = max(
+            (index for index, start in enumerate(starts) if start <= match.start()),
+            default=0,
+        )
+        local_text = lines[line_index] if lines else ""
+        source_match = SOURCE_PATTERN.search(local_text)
+        page_match = PAGE_PATTERN.search(local_text)
+
+        # Some citation renderers wrap metadata and the UUID onto adjacent lines.
+        # Look back one line only when it explicitly contains source/page metadata.
+        if line_index > 0 and (not source_match or not page_match):
+            previous = lines[line_index - 1]
+            if SOURCE_PATTERN.search(previous) or PAGE_PATTERN.search(previous):
+                local_text = previous + " " + local_text
+                source_match = SOURCE_PATTERN.search(local_text)
+                page_match = PAGE_PATTERN.search(local_text)
+
+        citations.append({
+            "source": source_match.group(1).strip() if source_match else None,
+            "pages": re.sub(r"\\s+", "", page_match.group(1)) if page_match else None,
+            "chunk_id": match.group(1),
+        })
+    return citations
+
+
 ABSTENTION_PHRASES = (
     "do not contain sufficient information",
     "does not contain sufficient information",
@@ -86,29 +130,7 @@ async def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
         answer_parts.append(part)
     answer = "".join(answer_parts)
 
-    # Models sometimes use Unicode non-breaking/en/em dashes inside UUIDs.
-    # Normalize dash variants before matching standard UUID syntax.
-    normalized_answer = re.sub(r"[\u2010-\u2015\u2212]", "-", answer)
-    citations = []
-    for chunk_match in CHUNK_ID_PATTERN.finditer(normalized_answer):
-        # Citation styles vary; identify the chunk UUID first, then inspect its
-        # surrounding sentence/line for optional source and page metadata.
-        context = normalized_answer[
-            max(0, chunk_match.start() - 180):chunk_match.end() + 100
-        ]
-        source_match = re.search(
-            r"([\w .()/-]+\.pdf)",
-            context,
-            re.IGNORECASE,
-        )
-        page_match = PAGE_PATTERN.search(context)
-        citations.append(
-            {
-                "source": source_match.group(1).strip() if source_match else None,
-                "pages": page_match.group(1).strip() if page_match else None,
-                "chunk_id": chunk_match.group(1).strip(),
-            }
-        )
+    citations = extract_citations(answer)
     retrieved_ids = sorted(set(recorder.retrieved_chunk_ids))
     cited_ids = sorted({item["chunk_id"] for item in citations})
     retrieved_set = set(retrieved_ids)
