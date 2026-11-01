@@ -1,0 +1,155 @@
+[
+  {
+    "query": "What causes ocean currents?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "7bac400c-ce5a-5f9b-bd49-f2a7d5b72f5f"
+    ]
+  },
+  {
+    "query": "How do warm and cold ocean currents affect nearby coastal regions?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "7bac400c-ce5a-5f9b-bd49-f2a7d5b72f5f"
+    ]
+  },
+  {
+    "query": "What is the Coriolis force and how does it affect moving water?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "08bf60ec-db15-5fc4-9c96-dadac44d4e0d",
+      "7bac400c-ce5a-5f9b-bd49-f2a7d5b72f5f"
+    ]
+  },
+  {
+    "query": "What are waves and what primarily causes them?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "9999122b-2a59-5121-9899-42761dce8ce2"
+    ]
+  },
+  {
+    "query": "How do waves change coastlines?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "9999122b-2a59-5121-9899-42761dce8ce2"
+    ]
+  },
+  {
+    "query": "What are ocean tides?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "f6956ef9-efac-5150-b225-5f071f6f6455"
+    ]
+  },
+  {
+    "query": "What causes spring tides and neap tides?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "108449cf-2ddb-5579-b6bd-8e9e047a6c7d",
+      "5baaabc2-aba2-554b-88af-6ef8ec1dd4bc"
+    ]
+  },
+  {
+    "query": "How do high tides help ships enter harbours safely?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "a0fe8d2a-e2ab-5e10-9b91-3bc158c6f119"
+    ]
+  },
+  {
+    "query": "What are fishing grounds and why are they rich in fish?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "4f65c48b-3cd6-5d45-a8e5-b06b67783fe4"
+    ]
+  },
+  {
+    "query": "What is ocean relief or submarine relief?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "91497edb-c2a8-5da0-9895-b6a3776ad0eb"
+    ]
+  },
+  {
+    "query": "What is a continental shelf?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "e528c83a-bcd6-57b9-8929-a3c3161e5731"
+    ]
+  },
+  {
+    "query": "What is a mid-ocean ridge?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "d2178103-35c1-5908-823f-f4a8f9775957"
+    ]
+  },
+  {
+    "query": "What are marine resources and how are they classified?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "c1661979-c4fc-56e1-96b7-2e5800c87fdf"
+    ]
+  },
+  {
+    "query": "Why are marine resources important?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "c86d4665-ec09-5899-9d32-1100586ad33b"
+    ]
+  },
+  {
+    "query": "What are territorial waters and what is innocent passage?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "c8ad7b66-5dc8-5d82-9eca-ca1ecd9e069d"
+    ]
+  },
+  {
+    "query": "What are the high seas?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "4fcda80a-d2eb-50eb-bed4-68f5273081c9"
+    ]
+  },
+  {
+    "query": "How does the GEMINI device help fishermen at sea?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "9ac8af5b-895c-5464-a50a-6fe77d6efa1c",
+      "8dd3d4a2-12db-59fc-85fb-2628955a2a0a"
+    ]
+  },
+  {
+    "query": "How does the tsunami early warning system communicate alerts to people?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "7f8a2acf-2173-59db-a6d0-cb4526a19ab3",
+      "0f66c825-a81c-5a9e-b321-aac4700f2957"
+    ]
+  },
+  {
+    "query": "Why are international maritime rules important?",
+    "answerable": true,
+    "expected_relevant_chunk_ids": [
+      "f8ef48a5-81d2-5d45-89f4-1a961f2561ec",
+      "fde83ec4-814d-5cdb-ad1e-797599f8add3"
+    ]
+  },
+  {
+    "query": "What is the current weather in Mumbai?",
+    "answerable": false,
+    "expected_relevant_chunk_ids": []
+  },
+  {
+    "query": "What is my current bank account balance?",
+    "answerable": false,
+    "expected_relevant_chunk_ids": []
+  },
+  {
+    "query": "What is the latest stock price of Reliance Industries?",
+    "answerable": false,
+    "expected_relevant_chunk_ids": []
+  }
+]
