@@ -54,7 +54,7 @@ def extract_citations(answer: str) -> list[dict[str, str | None]]:
         # Look back one line only when it explicitly contains source/page metadata.
         if line_index > 0 and (not source_match or not page_match):
             previous = lines[line_index - 1]
-            if SOURCE_PATTERN.search(previous) or PAGE_PATTERN.search(previous):
+            if (\n                not CHUNK_ID_PATTERN.search(previous)\n                and (SOURCE_PATTERN.search(previous) or PAGE_PATTERN.search(previous))\n            ):
                 local_text = previous + " " + local_text
                 source_match = SOURCE_PATTERN.search(local_text)
                 page_match = PAGE_PATTERN.search(local_text)
