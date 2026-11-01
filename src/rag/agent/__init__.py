@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,32 @@ MAX_TOOL_ROUNDS = 5
 agent_dir = Path(__file__).parent
 system_prompt_txt = agent_dir / "system_prompt.txt"
 tools_json = agent_dir / "tools.json"
+
+
+
+LIVE_OR_PRIVATE_QUERY_PATTERNS = (
+    re.compile(
+        r"\b(?:current|latest|live|today|right now)\b.{0,50}\b(?:weather|forecast|stock|share|market|price|exchange rate)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:weather|forecast|stock|share|market price|exchange rate)\b.{0,50}\b(?:current|latest|live|today|right now)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:my|personal)\b.{0,50}\b(?:bank|account|credit card)\b.{0,50}\b(?:balance|transactions?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:bank|account|credit card)\b.{0,30}\b(?:balance|transactions?)\b",
+        re.IGNORECASE,
+    ),
+)
+
+
+def requires_live_or_private_data(query: str) -> bool:
+    """Identify requests requiring live external services or private account access."""
+    return any(pattern.search(query) for pattern in LIVE_OR_PRIVATE_QUERY_PATTERNS)
 
 
 class Agent:
@@ -152,6 +179,19 @@ SOURCE ATTRIBUTION RULES:
         **kwargs: Any,
     ) -> AsyncGenerator[str, None]:
         """Generate an answer, executing at most MAX_TOOL_ROUNDS tool cycles."""
+        latest_user_message = next(
+            (message for message in reversed(messages) if message.get("role") == "user"),
+            None,
+        )
+        user_query = str(latest_user_message.get("content", "")) if latest_user_message else ""
+        if requires_live_or_private_data(user_query):
+            yield (
+                "I can't access live information or private account systems, and "
+                "the indexed documents do not contain sufficient information "
+                "to answer this request."
+            )
+            return
+
         for round_number in range(MAX_TOOL_ROUNDS):
             assistant_message: AssistantMessage = {
                 "role": "assistant",
