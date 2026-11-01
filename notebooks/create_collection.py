@@ -218,13 +218,6 @@ def _(app_form):
                 "sparse": models.SparseVectorParams()
             },
         )
-    else:
-        mo.output.append(
-            mo.md(
-                f"Using existing collection **{collection_name}**. "
-                "Existing points will be preserved."
-            )
-        )
 
     return (collection_name,)
 
