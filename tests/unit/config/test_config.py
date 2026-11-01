@@ -2,15 +2,15 @@ from rag import config
 from rag.components import chat, search, embed
 
 
-settings = config.Settings()
+settings = config.Settings(_env_file=None)
+
 
 def test_settings():
-    assert settings.qdrant_collection == "Wikipedia"
-    assert str(settings.qdrant_url) == "http://localhost:6333/"
-    assert settings.qdrant_api_key is None
+    assert settings.qdrant_collection == "astra-rag"
+    assert settings.qdrant_local_path == "./qdrant_storage"
 
-    assert str(settings.openai_url) == "http://localhost:4000/"
-    assert settings.openai_api_key == "None"
+    assert settings.groq_model == "openai/gpt-oss-120b"
+    assert settings.embedding_model == "BAAI/bge-small-en-v1.5"
 
 
 def test_get_qdrant():

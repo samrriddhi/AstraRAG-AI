@@ -175,3 +175,16 @@ cython_debug/
 
 # Qdrant stuff
 qdrant/volume
+# Local Qdrant database
+qdrant_storage/
+
+# Marimo generated files
+notebooks/__marimo__/
+
+# Local editor settings
+.vscode/
+
+# Local test artifacts
+test_chat.py
+test_document.txt
+type

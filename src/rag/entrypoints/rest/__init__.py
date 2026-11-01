@@ -1,15 +1,14 @@
-"""`entrypoints.rest` exposes the `Agent` from a REST API.
 
-This module defines a FastAPI app and endpoints that contain
-the logic to interact with the `Agent` via HTTP requests.
-It also defined a helper function to run the REST API using uvicorn.
+"""REST API entry point for AstraRAG AI.
+
+Exposes the Agent through FastAPI endpoints for model discovery
+and document-based question answering.
 """
 
 import json
 import os
 from collections.abc import AsyncGenerator
 
-import httpx
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -19,11 +18,16 @@ from rag.config import settings
 
 from .models import BaseModel, Messages
 
-app = FastAPI()
+
+app = FastAPI(
+    title="AstraRAG AI",
+    description="Document-based question answering using RAG.",
+    version="1.0.0",
+)
 
 
 class Data(BaseModel):
-    """POST input data for the chat endpoint."""
+    """Request body for the chat endpoint."""
 
     model: str
     messages: Messages
@@ -31,57 +35,78 @@ class Data(BaseModel):
 
 @app.get("/api/models")
 async def get_models() -> JSONResponse:
-    """Returns a list of available models."""
-    async with httpx.AsyncClient() as client:
-        response = await client.get(f"{settings.openai_url}v1/model/info")
-        body = response.json()
-
-    model_list = [
-        model["model_name"]
-        for model in body["data"]
-        if model["model_info"]["mode"] == "chat"
-    ]
-    return JSONResponse({"data": model_list})
+    """Return the configured Groq model."""
+    return JSONResponse(
+        {
+            "data": [settings.groq_model]
+        }
+    )
 
 
 @app.post("/api/chat")
-async def send_messages(data: Data, stream: bool = False):  # noqa: ANN201
-    """Receives a POST request with a JSON payload following the `Data` model.
+async def send_messages(data: Data, stream: bool = False):
+    """Generate an answer using the AstraRAG agent.
 
-    This function will reject the request if the payload does not conform to the `Data` model.
+    The system prompt is automatically added if it is not
+    already included in the incoming conversation.
 
     Args:
-        data (Data): The POST request payload; Must include `model` (str) and `messages` (Messages)
-        stream (bool, optional): Query parameter; Whether to return the response as JSON (False) or SSE (True). Defaults to False.
+        data: Request containing the model and conversation messages.
+        stream: Whether to stream the response using SSE.
 
     Returns:
-        JSONResponse: If stream is False; A JSON response containing the generated text.
-        StreamingResponse: If stream is True; A SSE response containing the generated text in data events.
-
+        A JSON response or a server-sent event stream.
     """
+
     agent = Agent(model=data.model)
 
-    response = agent.generate(data.messages.model_dump())
+    # Convert the incoming Pydantic messages to a Python list.
+    messages = data.messages.model_dump()
+
+    # Ensure the AstraRAG system prompt is included.
+    if not messages or messages[0].get("role") != "system":
+        messages.insert(
+            0,
+            {
+                "role": "system",
+                "content": agent.system,
+            },
+        )
+
+    # Generate the response through the RAG agent.
+    response = agent.generate(messages)
 
     if stream:
 
-        async def stream_response() -> AsyncGenerator[str]:
+        async def stream_response() -> AsyncGenerator[str, None]:
             async for chunk in response:
                 yield f"data: {json.dumps(chunk)}\n\n"
 
-        return StreamingResponse(stream_response())
-    else:
-        buffer = ""
+        return StreamingResponse(
+            stream_response(),
+            media_type="text/event-stream",
+        )
 
-        async for chunk in response:
-            buffer += chunk
+    buffer = ""
 
-        return JSONResponse({"response": buffer})
+    async for chunk in response:
+        buffer += chunk
+
+    return JSONResponse(
+        {
+            "response": buffer
+        }
+    )
 
 
-def api() -> None:  # pragma: no cover
-    """Run the FastAPI app using uvicorn."""
+def api() -> None:
+    """Run the FastAPI application using Uvicorn."""
+
     host = os.environ.get("HOST", "127.0.0.1")
-    port = os.environ.get("PORT", "8000")
+    port = int(os.environ.get("PORT", "8000"))
 
-    uvicorn.run(app, host=host, port=int(port))
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+    )

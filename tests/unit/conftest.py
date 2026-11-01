@@ -1,4 +1,6 @@
 import pytest
+from unittest.mock import patch
+
 from openai.types.chat.chat_completion_chunk import (
     ChatCompletionChunk,
     Choice,
@@ -12,14 +14,34 @@ from rag.components.search import QdrantSearch
 from rag.components.embed import OpenAIEmbed
 
 
+class FakeEmbedding:
+    def tolist(self):
+        return [0.1, 0.2, 0.3]
+
+
+class FakeTextEmbedding:
+    def __init__(self, model_name: str):
+        self.model_name = model_name
+
+    def embed(self, texts):
+        return iter([FakeEmbedding() for _ in texts])
+
+
 @pytest.fixture(scope="module")
 def openai_chat():
-    return OpenAIChat(api_key="", _openai_client_class=FakeAsyncOpenAI)  # type: ignore
+    return OpenAIChat(
+        api_key="",
+        _openai_client_class=FakeAsyncOpenAI,
+    )  # type: ignore
 
 
 @pytest.fixture(scope="module")
 def openai_embed():
-    return OpenAIEmbed(model="mock-ada", api_key="", _openai_client_class=FakeAsyncOpenAI)  # type: ignore
+    with patch(
+        "rag.components.embed.openai_embed.TextEmbedding",
+        FakeTextEmbedding,
+    ):
+        yield OpenAIEmbed(model="mock-ada")
 
 
 @pytest.fixture(scope="module")
@@ -28,12 +50,16 @@ def qdrant_search():
         collection="test",
         url="",
         api_key="",
-        _qdrant_client_class=FakeAsyncQdrantClient,  # type: ignore
-    )
+        _qdrant_client_class=FakeAsyncQdrantClient,
+    )  # type: ignore
 
 
 @pytest.fixture(scope="module")
-def agent(openai_chat: OpenAIChat, qdrant_search: QdrantSearch, openai_embed: OpenAIEmbed):
+def agent(
+    openai_chat: OpenAIChat,
+    qdrant_search: QdrantSearch,
+    openai_embed: OpenAIEmbed,
+):
     agent = Agent(model="test")
     agent.chat = openai_chat
     agent.search = qdrant_search
@@ -50,19 +76,25 @@ class FakeAsyncOpenAI:
             return self
 
         async def __anext__(self):
-            if len(self.text) > 0:
+            if self.text:
                 content = self.text.pop(0)
                 return ChatCompletionChunk(
                     id="0",
                     created=0,
                     model="test",
                     object="chat.completion.chunk",
-                    choices=[Choice(index=0, delta=ChoiceDelta(content=content))],
+                    choices=[
+                        Choice(
+                            index=0,
+                            delta=ChoiceDelta(content=content),
+                        )
+                    ],
                 )
-            else:
-                raise StopAsyncIteration
 
-    def __init__(self, *args, **kwargs): ...
+            raise StopAsyncIteration
+
+    def __init__(self, *args, **kwargs):
+        pass
 
     @property
     def chat(self):
@@ -90,7 +122,8 @@ class FakeAsyncOpenAI:
 
 
 class FakeAsyncQdrantClient:
-    def __init__(self, *args, **kwargs): ...
+    def __init__(self, *args, **kwargs):
+        pass
 
     async def query_points(self, *args, **kwargs):
         return QueryResponse(

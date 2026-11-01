@@ -1,11 +1,12 @@
-"""`search.qdrant_search` defines the QdrantSearch component.
 
-This component performs searches on a Qdrant vector database.
-It uses the QdrantClient to interact with the Qdrant API.
-This component exposes the following methods:
-    - `hybrid_search`: Performs a hybrid search using BM25 and Qdrant's dense index.
-    - `semantic_search`: Performs a semantic search using Qdrant's dense index.
-    - `keyword_search`: Performs a keyword search using BM25 and Qdrant's sparse index.
+"""
+Qdrant search component.
+
+Supports:
+- Hybrid search using dense vectors and BM25 sparse vectors.
+- Semantic search using dense vectors.
+- Keyword search using BM25 sparse vectors.
+- Retrieval results with source metadata and chunk identifiers.
 """
 
 from fastembed import SparseTextEmbedding
@@ -16,7 +17,7 @@ from rag.types import SearchResult
 
 
 class QdrantSearch:
-    """QdrantSearch is a component that performs searches on a Qdrant vector database."""
+    """Component for searching documents stored in Qdrant."""
 
     def __init__(
         self,
@@ -28,30 +29,49 @@ class QdrantSearch:
         _qdrant_client_class: type[AsyncQdrantClient] = AsyncQdrantClient,
         _sparse_text_embedding_class: type[SparseTextEmbedding] = SparseTextEmbedding,
     ) -> None:
-        """Initialize a QdrantSearch instance.
+        """Initialize the Qdrant search component."""
 
-        Args:
-            collection (str): The name of the Qdrant collection to use.
-            url (str): The URL of the Qdrant server.
-            api_key (str, optional): The API key to use for authentication. Defaults to None.
-            _dense_index (str, optional): The name of the dense index to use. Defaults to "dense".
-            _sparse_index (str, optional): The name of the sparse index to use. Defaults to "sparse".
-            _qdrant_client_class (AsyncQdrantClient, optional): The Qdrant client class to use. Defaults to AsyncQdrantClient.
-            _sparse_text_embedding_class (SparseTextEmbedding, optional): The SparseTextEmbedding class to use. Defaults to SparseTextEmbedding.
-
-        """
         self.collection = collection
-        self.qdrant = _qdrant_client_class(url, api_key=api_key)
-        self.bm25 = _sparse_text_embedding_class(model_name="Qdrant/bm25")
+
+        self.qdrant = _qdrant_client_class(
+            path=url,
+            api_key=api_key,
+        )
+
+        self.bm25 = _sparse_text_embedding_class(
+            model_name="Qdrant/bm25"
+        )
+
         self.dense_index = _dense_index
         self.sparse_index = _sparse_index
 
-    def _build_result(self, response: QueryResponse) -> list[SearchResult]:
-        return [
-            {"score": point.score, "data": point.payload}
-            for point in response.points
-            if point.payload is not None
-        ]
+    def _build_result(
+        self,
+        response: QueryResponse,
+    ) -> list[SearchResult]:
+        """Convert Qdrant results into application search results.
+
+        Preserves the original payload and adds the Qdrant point ID
+        as a stable chunk identifier.
+        """
+
+        results: list[SearchResult] = []
+
+        for point in response.points:
+            if point.payload is None:
+                continue
+
+            results.append(
+                {
+                    "score": point.score,
+                    "data": {
+                        **point.payload,
+                        "chunk_id": str(point.id),
+                    },
+                }
+            )
+
+        return results
 
     async def hybrid_search(
         self,
@@ -59,37 +79,40 @@ class QdrantSearch:
         keywords: list[str],
         limit: int = 25,
     ) -> list[SearchResult]:
-        """Perform a hybrid search using BM25 and Semantic Search.
+        """Search using dense and sparse retrieval with RRF fusion."""
 
-        Args:
-            query (list[float]): The query vector to use for the search.
-            keywords (list[str]): The keywords to use for the search.
-            limit (int, optional): The maximum number of results to return. Defaults to 25.
-
-        Returns:
-            list[SearchResult]: A list of search results, sorted by score.
-
-        """
         text = " ".join(keywords)
-        embedding = next(iter(self.bm25.query_embed(text)))
+
+        embedding = next(
+            iter(self.bm25.query_embed(text))
+        )
+
+        sparse_vector = models.SparseVector(
+            indices=embedding.indices.tolist(),
+            values=embedding.values.tolist(),
+        )
 
         prefetch = [
-            models.Prefetch(query=query, using=self.dense_index, limit=limit),
             models.Prefetch(
-                query=models.SparseVector(
-                    indices=embedding.indices.astype(float).tolist(),
-                    values=embedding.values.astype(float).tolist(),
-                ),
+                query=query,
+                using=self.dense_index,
+                limit=limit,
+            ),
+            models.Prefetch(
+                query=sparse_vector,
                 using=self.sparse_index,
                 limit=limit,
             ),
         ]
 
         response = await self.qdrant.query_points(
-            self.collection,
+            collection_name=self.collection,
             prefetch=prefetch,
-            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            query=models.FusionQuery(
+                fusion=models.Fusion.RRF
+            ),
             limit=limit,
+            with_payload=True,
         )
 
         return self._build_result(response)
@@ -99,21 +122,14 @@ class QdrantSearch:
         query: list[float],
         limit: int = 25,
     ) -> list[SearchResult]:
-        """Perform a semantic search using Qdrant's dense index.
+        """Search using dense semantic embeddings."""
 
-        Args:
-            query (list[float]): The query vector to use for the search.
-            limit (int, optional): The maximum number of results to return. Defaults to 25.
-
-        Returns:
-            list[SearchResult]: A list of search results, sorted by score.
-
-        """
         response = await self.qdrant.query_points(
-            self.collection,
+            collection_name=self.collection,
             query=query,
-            limit=limit,
             using=self.dense_index,
+            limit=limit,
+            with_payload=True,
         )
 
         return self._build_result(response)
@@ -123,27 +139,25 @@ class QdrantSearch:
         keywords: list[str],
         limit: int = 25,
     ) -> list[SearchResult]:
-        """Perform a keyword search using BM25 and Qdrant's sparse index.
+        """Search using BM25 sparse embeddings."""
 
-        Args:
-            keywords (list[str]): The keywords to use for the search.
-            limit (int, optional): The maximum number of results to return. Defaults to 25.
-
-        Returns:
-            list[SearchResult]: A list of search results, sorted by score.
-
-        """
         text = " ".join(keywords)
-        embedding = next(iter(self.bm25.query_embed(text)))
+
+        embedding = next(
+            iter(self.bm25.query_embed(text))
+        )
+
+        sparse_vector = models.SparseVector(
+            indices=embedding.indices.tolist(),
+            values=embedding.values.tolist(),
+        )
 
         response = await self.qdrant.query_points(
-            self.collection,
-            query=models.SparseVector(
-                indices=embedding.indices.astype(float).tolist(),
-                values=embedding.values.astype(float).tolist(),
-            ),
-            limit=limit,
+            collection_name=self.collection,
+            query=sparse_vector,
             using=self.sparse_index,
+            limit=limit,
+            with_payload=True,
         )
 
         return self._build_result(response)
