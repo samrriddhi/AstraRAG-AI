@@ -118,6 +118,18 @@ Run the metric tests with:
 uv run pytest tests/unit/evaluation -q
 ```
 
+### Run retrieval evaluation on your local index
+
+The starter dataset is at `data/evaluation/retrieval_dataset.json`. Its ocean-related questions are examples only; confirm they are answerable from the PDF you indexed, then add the relevant Qdrant chunk IDs to each `relevant_chunk_ids` array. You can find chunk IDs in the source citations returned by AstraRAG when you ask each question.
+
+After labelling at least one relevant chunk ID per query, run from the repository root:
+
+```powershell
+uv run python scripts/evaluate_retrieval.py
+```
+
+The runner uses the configured local embedding model and Qdrant collection, retrieves the top five chunks with hybrid search, prints the retrieved and relevant IDs, and reports Precision@5, Recall@5, and MRR. The starter file intentionally has empty labels, so it will stop with a helpful message until the labels are supplied. Do not treat unlabelled or example questions as an evaluation score.
+
 ## Configuration
 
 | Variable | Purpose | Default |
