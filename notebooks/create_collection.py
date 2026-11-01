@@ -9,6 +9,7 @@ with app.setup:
     import marimo as mo
 
     from pathlib import Path
+    from uuid import uuid4
 
     from docling_core.transforms.chunker.hierarchical_chunker import HierarchicalChunker
     from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
@@ -204,21 +205,26 @@ def _(app_form):
     if not collection_name:
         raise ValueError("Collection name cannot be empty.")
 
-    if qdrant.collection_exists(collection_name):
-        qdrant.delete_collection(collection_name)
-
-    qdrant.create_collection(
-        collection_name=collection_name,
-        vectors_config={
-            "dense": models.VectorParams(
-                size=embedding_dimension,
-                distance=models.Distance.COSINE,
+    if not qdrant.collection_exists(collection_name):
+        qdrant.create_collection(
+            collection_name=collection_name,
+            vectors_config={
+                "dense": models.VectorParams(
+                    size=embedding_dimension,
+                    distance=models.Distance.COSINE,
+                )
+            },
+            sparse_vectors_config={
+                "sparse": models.SparseVectorParams()
+            },
+        )
+    else:
+        mo.output.append(
+            mo.md(
+                f"Using existing collection **{collection_name}**. "
+                "Existing points will be preserved."
             )
-        },
-        sparse_vectors_config={
-            "sparse": models.SparseVectorParams()
-        },
-    )
+        )
 
     return (collection_name,)
 
@@ -238,7 +244,7 @@ def _(chunks):
 
         points.append(
     models.PointStruct(
-        id=index,
+        id=str(uuid4()),
         vector={
             "dense": _dense_vector,
             "sparse": _sparse_vector,
