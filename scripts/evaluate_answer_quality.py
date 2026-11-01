@@ -180,19 +180,82 @@ def save_report(report: dict[str, Any]) -> None:
     )
 
 
-async def run(dataset: list[dict[str, Any]], limit: int | None) -> dict[str, Any]:
-    """Evaluate sequentially, retry transient failures, and checkpoint after each case."""
+def _rate_limit_wait_seconds(error: Exception) -> float | None:
+    """Read Groq's suggested reset delay from a rate-limit error message."""
+    message = str(error)
+    match = re.search(
+        r"try again in\s+(?:(\d+)m)?\s*([\d.]+)s",
+        message,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    minutes = int(match.group(1) or 0)
+    seconds = float(match.group(2))
+    return minutes * 60 + seconds + 2
+
+
+async def run(
+    dataset: list[dict[str, Any]],
+    limit: int | None,
+    resume: bool = False,
+) -> dict[str, Any]:
+    """Evaluate sequentially, checkpoint results, and optionally resume completed work."""
     selected = dataset[:limit] if limit else dataset
-    results: list[dict[str, Any]] = []
+    results_by_query: dict[str, dict[str, Any]] = {}
+    if resume and REPORT_PATH.exists():
+        previous = json.loads(REPORT_PATH.read_text(encoding="utf-8"))
+        for item in previous.get("results", []):
+            if item.get("status") == "completed":
+                results_by_query[item["query"]] = item
+        print(
+            f"Resuming: keeping {len(results_by_query)} completed result(s).",
+            flush=True,
+        )
+
+    ordered_results: list[dict[str, Any]] = []
     for index, case in enumerate(selected, start=1):
-        print(f"[{index}/{len(selected)}] {case['query']}", flush=True)
-        result = None
+        query = case["query"]
+        if query in results_by_query:
+            ordered_results.append(results_by_query[query])
+            print(f"[{index}/{len(selected)}] Already completed: {query}", flush=True)
+            continue
+
+        print(f"[{index}/{len(selected)}] {query}", flush=True)
+        result: dict[str, Any] | None = None
+        stop_after_case = False
         for attempt in range(3):
             try:
                 result = await evaluate_case(case)
                 result["status"] = "completed"
                 break
             except Exception as exc:
+                is_rate_limit = type(exc).__name__ == "RateLimitError"
+                if is_rate_limit:
+                    delay = _rate_limit_wait_seconds(exc)
+                    if delay is not None and attempt == 0:
+                        print(
+                            f"  Groq rate limit reached. Waiting {delay:.0f}s "
+                            "as requested by the API before one retry...",
+                            flush=True,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    result = {
+                        "query": query,
+                        "answerable": bool(case["answerable"]),
+                        "status": "failed",
+                        "error": f"{type(exc).__name__}: {exc}",
+                        "manual_review_required": True,
+                    }
+                    print(
+                        "  Groq rate limit persists; checkpointing and pausing "
+                        "so remaining requests don't waste quota.",
+                        flush=True,
+                    )
+                    stop_after_case = True
+                    break
+
                 if attempt < 2:
                     delay = 2 ** (attempt + 1)
                     print(
@@ -203,7 +266,7 @@ async def run(dataset: list[dict[str, Any]], limit: int | None) -> dict[str, Any
                     await asyncio.sleep(delay)
                 else:
                     result = {
-                        "query": case["query"],
+                        "query": query,
                         "answerable": bool(case["answerable"]),
                         "status": "failed",
                         "error": f"{type(exc).__name__}: {exc}",
@@ -211,10 +274,26 @@ async def run(dataset: list[dict[str, Any]], limit: int | None) -> dict[str, Any
                     }
                     print("  Failed after 3 attempts; continuing.", flush=True)
 
-        results.append(result)
-        save_report(build_report(results, len(selected)))
+        if result is None:
+            raise RuntimeError(f"No evaluation result produced for: {query}")
+        ordered_results.append(result)
+        save_report(build_report(ordered_results, len(selected)))
 
-    return build_report(results, len(selected))
+        if stop_after_case:
+            for remaining in selected[index:]:
+                ordered_results.append(
+                    {
+                        "query": remaining["query"],
+                        "answerable": bool(remaining["answerable"]),
+                        "status": "skipped",
+                        "error": "Paused after Groq rate limit; rerun with --resume.",
+                        "manual_review_required": True,
+                    }
+                )
+            save_report(build_report(ordered_results, len(selected)))
+            break
+
+    return build_report(ordered_results, len(selected))
 
 
 def main() -> None:
@@ -225,6 +304,11 @@ def main() -> None:
         type=int,
         default=None,
         help="Evaluate only the first N cases (useful for a small smoke run).",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse completed cases from the existing report and retry failed/skipped cases.",
     )
     args = parser.parse_args()
 
@@ -237,7 +321,7 @@ def main() -> None:
     if not dataset:
         raise ValueError("The answer-quality dataset is empty.")
 
-    report = asyncio.run(run(dataset, args.limit))
+    report = asyncio.run(run(dataset, args.limit, args.resume))
     save_report(report)
     print("\nAnswer-quality evaluation")
     print(json.dumps(report["summary"], indent=2))
