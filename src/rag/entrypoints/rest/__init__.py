@@ -56,7 +56,9 @@ def _prepare_pdf(path: Path, filename: str) -> tuple[list[dict[str, str]], list[
     from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
 
     converted = DocumentConverter().convert(str(path))
-    chunker = HybridChunker()
+    # Keep chunks below the embedding model's 512-token input limit.
+    # The lower cap leaves room for contextualized headings and special tokens.
+    chunker = HybridChunker(max_tokens=400)
     chunks: list[dict[str, str]] = []
     for chunk in chunker.chunk(dl_doc=converted.document):
         text = chunker.contextualize(chunk=chunk).strip()
