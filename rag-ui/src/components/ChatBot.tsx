@@ -16,7 +16,7 @@ interface Citation {
 
 function extractCitations(content: string): Citation[] {
   const citations = new Map<string, Citation>();
-  const pattern = /\\[Source:\\s*([^\\]]+?)(?:,\\s*Page:\\s*([^\\]]+?))?,\\s*Chunk ID:\\s*([^\\]]+)\\]/g;
+  const pattern = /\[Source:\s*([^\]]+?)(?:,\s*Page:\s*([^\]]+?))?,\s*Chunk ID:\s*([^\]]+)\]/g;
 
   for (const match of content.matchAll(pattern)) {
     const source = match[1].trim();
@@ -49,11 +49,7 @@ function parseSseEvent(event: string): string | null {
   const parsed: unknown = JSON.parse(data);
   if (typeof parsed === 'string') return parsed;
 
-  if (
-    typeof parsed === 'object' &&
-    parsed !== null &&
-    'content' in parsed
-  ) {
+  if (typeof parsed === 'object' && parsed !== null) {
     const chunk = parsed as ChatStreamChunk;
     if (typeof chunk.error === 'string') throw new Error(chunk.error);
     return typeof chunk.content === 'string' ? chunk.content : null;
