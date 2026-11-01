@@ -1,4 +1,4 @@
-from scripts.evaluate_answer_quality import extract_citations
+from rag.evaluation.citations import extract_citations
 
 
 def test_adjacent_citations_keep_their_own_page_numbers():
