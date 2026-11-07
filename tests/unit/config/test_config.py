@@ -23,14 +23,21 @@ def test_get_qdrant():
     assert qdrant is second_qdrant
 
 
-def test_get_openai_chat():
-    openai = config.get_openai_chat()
+def test_get_openai_chat(monkeypatch):
+    # A placeholder key is sufficient: this test checks client construction,
+    # not authentication against the Groq API.
+    monkeypatch.setattr(config.settings, "groq_api_key", "test-api-key")
+    config.get_openai_chat.cache_clear()
+    try:
+        openai = config.get_openai_chat()
 
-    assert isinstance(openai, chat.OpenAIChat)
+        assert isinstance(openai, chat.OpenAIChat)
 
-    second_openai = config.get_openai_chat()
+        second_openai = config.get_openai_chat()
 
-    assert openai is second_openai
+        assert openai is second_openai
+    finally:
+        config.get_openai_chat.cache_clear()
 
 
 def test_get_openai_embed():
