@@ -1,7 +1,6 @@
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
-
 ENV UV_PYTHON_DOWNLOADS=0
 
 RUN apt-get update && apt-get install curl build-essential -y
@@ -20,7 +19,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN touch README.md
 
 COPY pyproject.toml uv.lock ./
-
 COPY src ./src
 
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -28,8 +26,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM python:3.13-slim-bookworm
 
+# Create the runtime user before assigning ownership of the application files.
+RUN useradd --create-home --uid 10001 app
+
+WORKDIR /app
 COPY --from=builder --chown=app:app /app /app
 
 ENV PATH="/app/.venv/bin:$PATH" HOST="0.0.0.0"
+
+# Local Qdrant storage is written under /app by default; keep it writable.
+RUN mkdir -p /app/qdrant_storage && chown -R app:app /app/qdrant_storage
+
+USER app
 
 CMD ["api"]
