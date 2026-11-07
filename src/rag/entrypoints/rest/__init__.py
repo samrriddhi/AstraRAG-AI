@@ -43,6 +43,12 @@ class Data(BaseModel):
     messages: Messages
 
 
+@app.get("/health")
+async def health_check() -> JSONResponse:
+    """Return a lightweight liveness response for deployment health checks."""
+    return JSONResponse({"status": "ok"})
+
+
 @app.get("/api/models")
 async def get_models() -> JSONResponse:
     """Return the configured Groq model."""
