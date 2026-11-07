@@ -60,11 +60,12 @@ def agent(
     qdrant_search: QdrantSearch,
     openai_embed: OpenAIEmbed,
 ):
-    agent = Agent(model="test")
-    agent.chat = openai_chat
-    agent.search = qdrant_search
-    agent.embed = openai_embed
-    return agent
+    return Agent(
+        model="test",
+        _chat=openai_chat,
+        _search=qdrant_search,
+        _embed=openai_embed,
+    )
 
 
 class FakeAsyncOpenAI:
